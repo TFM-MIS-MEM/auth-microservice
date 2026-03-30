@@ -4,23 +4,23 @@ services:
   mongodb:
     restart: unless-stopped
     image: mongo:latest
-    container_name: template-mongodb
+    container_name: auth-mongodb
     environment:
       - MONGO_INITDB_ROOT_USERNAME=${MONGO_INITDB_ROOT_USERNAME}
       - MONGO_INITDB_ROOT_PASSWORD=${MONGO_INITDB_ROOT_PASSWORD}
     networks:
-      - template-network
+      - auth-network
     ports:
       - "27017:27017"
     volumes:
-      - mongo-data:/data/db
+      - auth-mongo-data:/data/db
 
-  template:
+  auth:
     restart: unless-stopped
     build:
       context: .
       dockerfile: Dockerfile.dev
-    container_name: template-service
+    container_name: auth-service
     environment:
       - MONGODB_URI=${MONGODB_URI}
       - NODE_ENV=development
@@ -29,7 +29,7 @@ services:
     depends_on:
       - mongodb
     networks:
-      - template-network
+      - auth-network
     ports:
       - "${PORT}:${PORT}"
     volumes:
@@ -37,8 +37,8 @@ services:
       - /app/node_modules
 
 volumes:
-  mongo-data:
+  auth-mongo-data:
 
 networks:
-  template-network:
+  auth-network:
     driver: bridge
