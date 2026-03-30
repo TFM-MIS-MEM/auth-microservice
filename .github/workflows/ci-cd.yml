@@ -1,0 +1,75 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    name: Lint, Audit & Test
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [20]
+
+    steps:
+      # -----------------------------------------------
+      # 1. Checkout code
+      # -----------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------
+      # 2. Setup pnpm
+      # -----------------------------------------------
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 10
+
+      # -----------------------------------------------
+      # 3. Setup Node.js
+      # -----------------------------------------------
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'pnpm'
+
+      # -----------------------------------------------
+      # 4. Install dependencies
+      # -----------------------------------------------
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # -----------------------------------------------
+      # 5. Lint
+      # -----------------------------------------------
+      - name: Run ESLint
+        run: pnpm run lint
+
+      # -----------------------------------------------
+      # 6. Security audit
+      # -----------------------------------------------
+      - name: Security audit
+        run: pnpm audit
+
+      # -----------------------------------------------
+      # 7. Tests + Coverage
+      # -----------------------------------------------
+      - name: Run tests with coverage
+        run: pnpm run test:coverage
+
+      # -----------------------------------------------
+      # 7. Upload coverage artifact (optional)
+      # -----------------------------------------------
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 7

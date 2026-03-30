@@ -1,0 +1,44 @@
+version: "3.8"
+
+services:
+  mongodb:
+    restart: unless-stopped
+    image: mongo:latest
+    container_name: template-mongodb
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_INITDB_ROOT_USERNAME}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_INITDB_ROOT_PASSWORD}
+    networks:
+      - template-network
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+
+  template:
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: template-service
+    environment:
+      - MONGODB_URI=${MONGODB_URI}
+      - NODE_ENV=development
+      - PORT=${PORT}
+      - LOG_LEVEL=${LOG_LEVEL}
+    depends_on:
+      - mongodb
+    networks:
+      - template-network
+    ports:
+      - "${PORT}:${PORT}"
+    volumes:
+      - ./:/app:cached
+      - /app/node_modules
+
+volumes:
+  mongo-data:
+
+networks:
+  template-network:
+    driver: bridge

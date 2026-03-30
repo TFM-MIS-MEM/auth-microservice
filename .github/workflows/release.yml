@@ -1,0 +1,144 @@
+name: Release & Docker Publish
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+env:
+  DOCKER_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/node-microservice-template
+
+jobs:
+  # =============================================
+  # Job 1: Build & Push Docker Image
+  # =============================================
+  docker:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract tag name
+        id: tag
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.DOCKER_IMAGE }}:${{ steps.tag.outputs.VERSION }}
+            ${{ env.DOCKER_IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # =============================================
+  # Job 2: Generate Release Notes & GitHub Release
+  # =============================================
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: docker
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract tag name
+        id: tag
+        run: |
+          TAG_NAME="${GITHUB_REF#refs/tags/}"
+          echo "VERSION=$TAG_NAME" >> $GITHUB_OUTPUT
+
+      - name: Generate release notes from Conventional Commits
+        id: notes
+        run: |
+          TAG_NAME="${{ steps.tag.outputs.VERSION }}"
+          PREV_TAG=$(git describe --tags --abbrev=0 "$TAG_NAME^" 2>/dev/null || echo "")
+
+          if [ -z "$PREV_TAG" ]; then
+            COMMITS=$(git log --pretty=format:"%H")
+          else
+            COMMITS=$(git log --pretty=format:"%H" "$PREV_TAG..$TAG_NAME")
+          fi
+
+          FEATURES=""
+          FIXES=""
+          TESTS=""
+          DOCS=""
+          CI=""
+          OTHER=""
+
+          for sha in $COMMITS; do
+            MSG=$(git log -1 --pretty=format:"%s" $sha)
+            if [[ "$MSG" =~ ^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|sec): ]]; then
+              TYPE="${BASH_REMATCH[1]}"
+              DESC="${MSG#*: }"
+              case "$TYPE" in
+                feat) FEATURES+="- $DESC\n" ;;
+                fix) FIXES+="- $DESC\n" ;;
+                test) TESTS+="- $DESC\n" ;;
+                docs) DOCS+="- $DESC\n" ;;
+                ci) CI+="- $DESC\n" ;;
+                *) OTHER+="- $TYPE: $DESC\n" ;;
+              esac
+            else
+              OTHER+="- $MSG\n"
+            fi
+          done
+
+          RELEASE_NOTES="# Release $TAG_NAME\n\n"
+          RELEASE_NOTES+="## 🚀 Features\n${FEATURES:-No new features.}\n\n"
+          RELEASE_NOTES+="## 🐛 Fixes\n${FIXES:-No fixes.}\n\n"
+          RELEASE_NOTES+="## 🧪 Tests\n${TESTS:-No test changes.}\n\n"
+          RELEASE_NOTES+="## 📚 Documentation\n${DOCS:-No documentation changes.}\n\n"
+          RELEASE_NOTES+="## ⚙️ CI\n${CI:-No CI changes.}\n\n"
+          RELEASE_NOTES+="## 🔧 Other\n${OTHER:-No other changes.}\n"
+
+          echo -e "$RELEASE_NOTES" > release_notes.md
+
+      - name: Update CHANGELOG.md and .version
+        run: |
+          TAG_NAME="${{ steps.tag.outputs.VERSION }}"
+
+          # Prepend release notes to CHANGELOG.md
+          (cat release_notes.md; echo; cat CHANGELOG.md) > temp && mv temp CHANGELOG.md
+          echo "$TAG_NAME" > .version
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git checkout main
+          git add CHANGELOG.md .version
+          git commit -m "chore: update CHANGELOG and .version for $TAG_NAME" || echo "No changes to commit"
+          git push origin main
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.VERSION }}
+          name: Release ${{ steps.tag.outputs.VERSION }}
+          body_path: release_notes.md
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
