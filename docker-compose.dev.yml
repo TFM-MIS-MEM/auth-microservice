@@ -1,44 +1,89 @@
-version: "3.8"
+# ===========================================================
+# Auth Microservice — Entorno de Desarrollo Local
+#
+# Servicios: auth-service + auth-mongodb
+# Red: tfm-network (externa, creada por scripts/dev-up.ps1)
+#
+# Uso independiente:
+#   docker network create tfm-network   # solo la primera vez
+#   docker compose -f docker-compose.dev.yml up --build
+#
+# Via script de orquestación:
+#   ..\scripts\dev-up.ps1
+# ===========================================================
+
+version: "3.9"
 
 services:
-  mongodb:
-    restart: unless-stopped
-    image: mongo:latest
-    container_name: auth-mongodb
-    environment:
-      - MONGO_INITDB_ROOT_USERNAME=${MONGO_INITDB_ROOT_USERNAME}
-      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_INITDB_ROOT_PASSWORD}
-    networks:
-      - auth-network
-    ports:
-      - "27017:27017"
-    volumes:
-      - auth-mongo-data:/data/db
 
+  # -----------------------------------------------------------
+  # AUTH MICROSERVICE — Node.js + Express (modo desarrollo)
+  # -----------------------------------------------------------
   auth:
-    restart: unless-stopped
     build:
       context: .
       dockerfile: Dockerfile.dev
     container_name: auth-service
+    restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      - MONGODB_URI=${MONGODB_URI}
-      - NODE_ENV=development
-      - PORT=${PORT}
-      - LOG_LEVEL=${LOG_LEVEL}
-    depends_on:
-      - mongodb
-    networks:
-      - auth-network
+      NODE_ENV: development
+      PORT: ${PORT:-3000}
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
+      MONGODB_URI: mongodb://auth-mongodb:27017/auth-db
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
     ports:
-      - "${PORT}:${PORT}"
+      - "${PORT:-3000}:${PORT:-3000}"   # Acceso directo — solo para dev (bypass Kong)
     volumes:
-      - ./:/app:cached
-      - /app/node_modules
+      - .:/app:cached
+      - /app/node_modules              # Preservar node_modules del contenedor
+    networks:
+      - tfm-network
+    depends_on:
+      auth-mongodb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:${PORT:-3000}/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
+  # -----------------------------------------------------------
+  # AUTH DATABASE — MongoDB
+  # -----------------------------------------------------------
+  auth-mongodb:
+    image: mongo:7.0
+    container_name: auth-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_DATABASE: auth-db
+    ports:
+      - "27017:27017"   # Acceso directo — MongoDB Compass, etc.
+    volumes:
+      - auth-mongo-data:/data/db
+    networks:
+      - tfm-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+# -----------------------------------------------------------
+# VOLUMES
+# -----------------------------------------------------------
 volumes:
   auth-mongo-data:
+    name: tfm_auth-mongo-data
 
+# -----------------------------------------------------------
+# NETWORKS — Externa (compartida entre microservicios)
+# -----------------------------------------------------------
 networks:
-  auth-network:
-    driver: bridge
+  tfm-network:
+    external: true
+    name: tfm-network

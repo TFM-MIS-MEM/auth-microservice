@@ -13,6 +13,9 @@ const config = {
   apiDescription:
     process.env.API_DESCRIPTION ||
     'Autenticación, gestión de usuarios y emisión de API Keys — TFM SaaS Reconocimiento Facial',
+  // JWT
+  jwtSecret: process.env.JWT_SECRET,
+  jwtExpiresIn: process.env.JWT_EXPIRES_IN || '1h',
 };
 
 module.exports = config;

@@ -15,8 +15,12 @@ const swaggerOptions = {
     },
     servers: [
       {
+        url: `http://localhost:8000`,
+        description: 'API Gateway (Kong)',
+      },
+      {
         url: `http://localhost:${config.port}`,
-        description: 'Local development server',
+        description: 'Auth Service (Direct)',
       },
     ],
     components: {
@@ -29,7 +33,7 @@ const swaggerOptions = {
       },
     },
   },
-  apis: ['./src/routes/*.js'],
+  apis: ['./src/routes/*.js', './src/models/*.js'],
 };
 
 const swaggerSpec = swaggerJsdoc(swaggerOptions);
