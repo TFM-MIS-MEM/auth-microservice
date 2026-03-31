@@ -254,11 +254,37 @@ const rotateApiKey = async (userId) => {
   return rawApiKey;
 };
 
+// ---------------------
+// SERVICE — Get Me (Status)
+// ---------------------
+/**
+ * Retrieves fresh user data from the database.
+ * Explicitly sanitised by the model's toJSON transform.
+ */
+const getMe = async (userId) => {
+  const user = await AuthUser.findById(userId);
+  if (!user) throw new AppError('User not found', 404);
+  return user.toJSON();
+};
+
+// ---------------------
+// SERVICE — Delete Account
+// ---------------------
+/**
+ * Completely removes the user document from the database.
+ */
+const deleteAccount = async (userId) => {
+  const user = await AuthUser.findByIdAndDelete(userId);
+  if (!user) throw new AppError('User not found', 404);
+};
+
 module.exports = { 
   register, 
   login, 
   forgotPassword, 
   resetPassword, 
   changePassword, 
-  rotateApiKey 
+  rotateApiKey,
+  getMe,
+  deleteAccount
 };

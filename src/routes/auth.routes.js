@@ -8,7 +8,9 @@ const {
   forgotPassword,
   resetPassword,
   changePassword,
-  rotateApiKey
+  rotateApiKey,
+  getMe,
+  deleteAccount
 } = require('../controllers/auth.controller');
 const validate = require('../middlewares/validate');
 const { protect } = require('../middlewares/auth');
@@ -348,5 +350,41 @@ router.post('/change-password', protect, validate(changePasswordSchema), changeP
  *         description: Unauthorized.
  */
 router.post('/rotate-api-key', protect, rotateApiKey);
+
+/**
+ * @swagger
+ * /api/v1/auth/me:
+ *   get:
+ *     tags:
+ *       - Auth - Internal Accounts
+ *     summary: Get current user profile
+ *     description: Retrieves the current user's data from the database. Commonly used by the frontend to verify session validity and load RBAC roles.
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: User profile retrieved successfully.
+ *       401:
+ *         description: Unauthorized. Invalid token or user no longer exists.
+ */
+router.get('/me', protect, getMe);
+
+/**
+ * @swagger
+ * /api/v1/auth/account:
+ *   delete:
+ *     tags:
+ *       - Auth - Internal Accounts
+ *     summary: Delete user account
+ *     description: Permanently deletes the authenticated user from the database.
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       204:
+ *         description: Account successfully deleted. No content returned.
+ *       401:
+ *         description: Unauthorized.
+ */
+router.delete('/account', protect, deleteAccount);
 
 module.exports = router;

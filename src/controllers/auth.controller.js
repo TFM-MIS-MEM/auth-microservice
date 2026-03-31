@@ -103,11 +103,35 @@ const rotateApiKey = catchAsync(async (req, res) => {
   });
 });
 
+// ---------------------
+// GET /api/v1/auth/me
+// ---------------------
+const getMe = catchAsync(async (req, res) => {
+  const user = await authService.getMe(req.user.id);
+  res.status(200).json({
+    status: 'success',
+    data: { user },
+  });
+});
+
+// ---------------------
+// DELETE /api/v1/auth/account
+// ---------------------
+const deleteAccount = catchAsync(async (req, res) => {
+  await authService.deleteAccount(req.user.id);
+  res.status(204).json({
+    status: 'success',
+    data: null,
+  });
+});
+
 module.exports = { 
   registerUser, 
   loginUser, 
   forgotPassword, 
   resetPassword, 
   changePassword, 
-  rotateApiKey 
+  rotateApiKey,
+  getMe,
+  deleteAccount
 };
