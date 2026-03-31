@@ -45,4 +45,69 @@ const loginUser = catchAsync(async (req, res) => {
   });
 });
 
-module.exports = { registerUser, loginUser };
+// ---------------------
+// POST /api/v1/auth/forgot-password
+// ---------------------
+const forgotPassword = catchAsync(async (req, res) => {
+  const { email } = req.body;
+  
+  await authService.forgotPassword(email);
+  
+  res.status(200).json({
+    status: 'success',
+    message: 'A password reset link has been sent to your email.',
+  });
+});
+
+// ---------------------
+// POST /api/v1/auth/reset-password
+// ---------------------
+const resetPassword = catchAsync(async (req, res) => {
+  const { token, password } = req.body;
+  
+  await authService.resetPassword(token, password);
+  
+  res.status(200).json({
+    status: 'success',
+    message: 'Password has been successfully reset. You can now log in.',
+  });
+});
+
+// ---------------------
+// POST /api/v1/auth/change-password
+// ---------------------
+const changePassword = catchAsync(async (req, res) => {
+  const { oldPassword, newPassword } = req.body;
+  
+  await authService.changePassword(req.user.id, oldPassword, newPassword);
+  
+  res.status(200).json({
+    status: 'success',
+    message: 'Password has been successfully changed.',
+  });
+});
+
+// ---------------------
+// POST /api/v1/auth/rotate-api-key
+// ---------------------
+const rotateApiKey = catchAsync(async (req, res) => {
+  // protect middleware injects req.user
+  const newApiKey = await authService.rotateApiKey(req.user.id);
+  
+  res.status(200).json({
+    status: 'success',
+    message: 'API Key rotated successfully. Store your new key securely.',
+    data: {
+      apiKey: newApiKey,
+    },
+  });
+});
+
+module.exports = { 
+  registerUser, 
+  loginUser, 
+  forgotPassword, 
+  resetPassword, 
+  changePassword, 
+  rotateApiKey 
+};

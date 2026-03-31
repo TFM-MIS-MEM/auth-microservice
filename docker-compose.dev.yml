@@ -34,6 +34,8 @@ services:
       MONGODB_URI: mongodb://auth-mongodb:27017/auth-db
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
+      RESEND_API_KEY: ${RESEND_API_KEY}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
     ports:
       - "${PORT:-3000}:${PORT:-3000}"   # Acceso directo — solo para dev (bypass Kong)
     volumes:

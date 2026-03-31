@@ -119,6 +119,23 @@ const authUserSchema = new mongoose.Schema(
       },
       default: 'active',
     },
+
+    /**
+     * Hashed token used to verify password reset requests.
+     * Stored as a hash to mitigate DB leak risks.
+     */
+    resetPasswordToken: {
+      type: String,
+      select: false,
+    },
+
+    /**
+     * Expiration timestamp for the reset token.
+     */
+    resetPasswordExpires: {
+      type: Date,
+      select: false,
+    },
   },
   {
     // Automatic createdAt / updatedAt timestamps
@@ -133,6 +150,8 @@ const authUserSchema = new mongoose.Schema(
         // Belt-and-suspenders: never leak sensitive fields via toJSON
         delete ret.password;
         delete ret.apiKeyHash;
+        delete ret.resetPasswordToken;
+        delete ret.resetPasswordExpires;
         return ret;
       },
     },
@@ -178,6 +197,30 @@ authUserSchema.methods.comparePassword = async function comparePassword(
 ) {
   // `this.password` is the stored hash (requires `.select('+password')` upstream)
   return bcrypt.compare(candidatePassword, this.password);
+};
+
+/**
+ * Generates a random reset token, hashes it to store in the DB, and sets an expiration.
+ *
+ * @returns {string} The plaintext, unhashed reset token to be sent to the user via email.
+ */
+authUserSchema.methods.createPasswordResetToken = function () {
+  const crypto = require('crypto');
+  
+  // 1. Generate a raw random string
+  const resetToken = crypto.randomBytes(32).toString('hex');
+
+  // 2. Hash the string using SHA-256 for secure DB storage
+  this.resetPasswordToken = crypto
+    .createHash('sha256')
+    .update(resetToken)
+    .digest('hex');
+
+  // 3. Set expiration time to 10 minutes from now
+  this.resetPasswordExpires = Date.now() + 10 * 60 * 1000;
+
+  // 4. Return the unhashed original string meant to go in the email link
+  return resetToken;
 };
 
 // ---------------------

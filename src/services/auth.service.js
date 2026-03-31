@@ -3,9 +3,13 @@
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { Resend } = require('resend');
 const AuthUser = require('../models/user.model');
 const AppError = require('../utils/AppError');
 const config = require('../config');
+
+// Initialize Resend with API Key from environment
+const resend = new Resend(config.resendApiKey);
 
 // ---------------------
 // CONSTANTS
@@ -42,6 +46,42 @@ const signJwt = (payload) => {
     expiresIn: config.jwtExpiresIn,
     issuer: 'auth-microservice',
   });
+};
+
+// ---------------------
+// HELPER — Resend Email
+// ---------------------
+/**
+ * Uses Resend to send the password reset token URL to the user.
+ * Real mechanism, replacing local logs.
+ *
+ * @param {string} email
+ * @param {string} token
+ */
+const sendResetEmail = async (email, token) => {
+  const resetUrl = `${config.frontendUrl}/reset-password?token=${token}`;
+
+  try {
+    const { error } = await resend.emails.send({
+      from: 'TFM SaaS Auth <onboarding@resend.dev>', // Should be a verified domain in prod
+      to: email,
+      subject: 'Password Reset Request',
+      html: `
+        <p>You requested a password reset. Please click the link below to set a new password:</p>
+        <p><a href="${resetUrl}">${resetUrl}</a></p>
+        <p>This link is valid for 10 minutes.</p>
+        <p>If you didn't request this, please ignore this email.</p>
+      `,
+    });
+
+    if (error) {
+      console.error('Email sending failed (Resend API Error):', error);
+      throw new Error(error.message);
+    }
+  } catch (err) {
+    console.error('Email sending failed:', err);
+    throw new AppError('There was an error sending the email. Try again later.', 500);
+  }
 };
 
 // ---------------------
@@ -116,4 +156,109 @@ const login = async ({ email, password }) => {
   return { user: user.toJSON(), token };
 };
 
-module.exports = { register, login };
+// ---------------------
+// SERVICE — Forgot Password
+// ---------------------
+/**
+ * Initiates the password recovery flow. Generates a token and sends email.
+ */
+const forgotPassword = async (email) => {
+  const user = await AuthUser.findOne({ email: email.toLowerCase().trim() });
+  
+  if (!user) {
+    throw new AppError('There is no account associated with this email address.', 404);
+  }
+
+  // Generate random token and hash it (handled by model instance)
+  const resetToken = user.createPasswordResetToken();
+  await user.save({ validateBeforeSave: false });
+
+  try {
+    await sendResetEmail(user.email, resetToken);
+  } catch (err) {
+    // Revert token state if email fails
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpires = undefined;
+    await user.save({ validateBeforeSave: false });
+    
+    throw err;
+  }
+};
+
+// ---------------------
+// SERVICE — Reset Password
+// ---------------------
+/**
+ * Completes the recovery flow. Validates token hash and saves new password.
+ */
+const resetPassword = async (token, newPassword) => {
+  // Hash the incoming token
+  const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+  // Find user based on token hash and ensure it's not expired
+  const user = await AuthUser.findOne({
+    resetPasswordToken: hashedToken,
+    resetPasswordExpires: { $gt: Date.now() },
+  });
+
+  if (!user) {
+    throw new AppError('Token is invalid or has expired', 400);
+  }
+
+  // Apply new password and clear token fields
+  user.password = newPassword;
+  user.resetPasswordToken = undefined;
+  user.resetPasswordExpires = undefined;
+  
+  await user.save();
+};
+
+// ---------------------
+// SERVICE — Change Password
+// ---------------------
+/**
+ * Allows an authenticated logged-in user to change their known password.
+ */
+const changePassword = async (userId, oldPassword, newPassword) => {
+  // Explicitly fetch password field
+  const user = await AuthUser.findById(userId).select('+password');
+  if (!user) throw new AppError('User not found', 404);
+
+  // Validate old password
+  const isMatch = await user.comparePassword(oldPassword);
+  if (!isMatch) {
+    throw new AppError('The old password you entered is incorrect', 401);
+  }
+
+  // Update logic
+  user.password = newPassword;
+  await user.save();
+};
+
+// ---------------------
+// SERVICE — Rotate API Key
+// ---------------------
+/**
+ * Generates a new raw API Key for an authenticated user, revoking the previous one.
+ */
+const rotateApiKey = async (userId) => {
+  const user = await AuthUser.findById(userId);
+  if (!user) throw new AppError('User not found', 404);
+
+  const rawApiKey = generateRawApiKey();
+  const apiKeyHash = await bcrypt.hash(rawApiKey, API_KEY_HASH_ROUNDS);
+
+  user.apiKeyHash = apiKeyHash;
+  await user.save();
+
+  return rawApiKey;
+};
+
+module.exports = { 
+  register, 
+  login, 
+  forgotPassword, 
+  resetPassword, 
+  changePassword, 
+  rotateApiKey 
+};

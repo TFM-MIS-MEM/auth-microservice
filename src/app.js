@@ -11,6 +11,9 @@ const config = require('./config');
 
 const app = express();
 
+// Trust the Kong API Gateway proxy headers (X-Forwarded-For)
+app.set('trust proxy', 1);
+
 // ---------------------
 // Security Middleware & Rate Limiting
 // ---------------------
