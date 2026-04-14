@@ -95,14 +95,15 @@ const authUserSchema = new mongoose.Schema(
     },
 
     /**
-     * Bcrypt hash of the raw API Key.
-     * The plaintext key is only returned once at creation time (Issue 4).
+     * SHA-256 hash of the raw API Key for O(1) indexed searches.
+     * The plaintext key is only returned once at creation time.
      * `select: false` prevents accidental exposure in list queries.
      */
     apiKeyHash: {
       type: String,
       default: null,
       select: false,
+      index: true,
     },
 
     /**

@@ -15,7 +15,6 @@ const resend = new Resend(config.resendApiKey);
 // CONSTANTS
 // ---------------------
 const API_KEY_BYTES = 32; // 256-bit → 64-char hex string
-const API_KEY_HASH_ROUNDS = 12;
 
 // ---------------------
 // HELPER — Raw API Key generation
@@ -28,6 +27,14 @@ const API_KEY_HASH_ROUNDS = 12;
  * @returns {string} 64-character hex API Key
  */
 const generateRawApiKey = () => crypto.randomBytes(API_KEY_BYTES).toString('hex');
+
+/**
+ * Hashes a raw API Key using SHA-256 for deterministic (O(1)) searches.
+ *
+ * @param {string} rawKey
+ * @returns {string} SHA-256 hash
+ */
+const hashApiKey = (rawKey) => crypto.createHash('sha256').update(rawKey).digest('hex');
 
 // ---------------------
 // HELPER — JWT signing
@@ -103,7 +110,7 @@ const register = async ({ email, password, role }) => {
 
   // 2. Generate API Key — plaintext (shown once) + hash (persisted)
   const rawApiKey = generateRawApiKey();
-  const apiKeyHash = await bcrypt.hash(rawApiKey, API_KEY_HASH_ROUNDS);
+  const apiKeyHash = hashApiKey(rawApiKey);
 
   // 3. Persist — password is hashed by the pre-save hook on the model
   const user = await AuthUser.create({
@@ -246,7 +253,7 @@ const rotateApiKey = async (userId) => {
   if (!user) throw new AppError('User not found', 404);
 
   const rawApiKey = generateRawApiKey();
-  const apiKeyHash = await bcrypt.hash(rawApiKey, API_KEY_HASH_ROUNDS);
+  const apiKeyHash = hashApiKey(rawApiKey);
 
   user.apiKeyHash = apiKeyHash;
   await user.save();
@@ -278,6 +285,35 @@ const deleteAccount = async (userId) => {
   if (!user) throw new AppError('User not found', 404);
 };
 
+// ---------------------
+// SERVICE — Validate API Key (Internal M2M)
+// ---------------------
+/**
+ * Internal computation function to validate an API key provided by external microservices or Gateway.
+ * Hashes the incoming token using SHA-256 for O(1) matching in MongoDB.
+ *
+ * @param {string} rawApiKey Plaintext key passed in request
+ * @returns {{ id: string, email: string, role: string }} User claims
+ * @throws {AppError} 401 if invalid or not found.
+ */
+const validateApiKey = async (rawApiKey) => {
+  const apiKeyHash = hashApiKey(rawApiKey);
+
+  // Directly search by hash - indexing allows rapid location
+  const user = await AuthUser.findOne({ apiKeyHash });
+
+  if (!user) {
+    throw new AppError('Invalid API Key', 401);
+  }
+
+  if (user.status !== 'active') {
+    throw new AppError(`Account is ${user.status}. Access denied.`, 403);
+  }
+
+  // Return non-sensitive claims about the underlying entity to the downstream consumer
+  return { id: user.id, email: user.email, role: user.role };
+};
+
 module.exports = { 
   register, 
   login, 
@@ -286,5 +322,6 @@ module.exports = {
   changePassword, 
   rotateApiKey,
   getMe,
-  deleteAccount
+  deleteAccount,
+  validateApiKey
 };

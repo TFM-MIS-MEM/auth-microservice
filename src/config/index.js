@@ -19,6 +19,8 @@ const config = {
   // Email & Resend
   resendApiKey: process.env.RESEND_API_KEY,
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
+  // Security
+  internalApiSecret: process.env.INTERNAL_API_SECRET || 'dev_internal_secret_key_789',
 };
 
 module.exports = config;

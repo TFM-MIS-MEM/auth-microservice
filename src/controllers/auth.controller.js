@@ -125,6 +125,22 @@ const deleteAccount = catchAsync(async (req, res) => {
   });
 });
 
+// ---------------------
+// POST /api/v1/auth/internal/validate-api-key
+// ---------------------
+const validateApiKey = catchAsync(async (req, res) => {
+  const { apiKey } = req.body;
+
+  const user = await authService.validateApiKey(apiKey);
+
+  res.status(200).json({
+    status: 'success',
+    data: {
+      user,
+    },
+  });
+});
+
 module.exports = { 
   registerUser, 
   loginUser, 
@@ -133,5 +149,6 @@ module.exports = {
   changePassword, 
   rotateApiKey,
   getMe,
-  deleteAccount
+  deleteAccount,
+  validateApiKey
 };

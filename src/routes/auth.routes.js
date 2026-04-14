@@ -10,10 +10,12 @@ const {
   changePassword,
   rotateApiKey,
   getMe,
-  deleteAccount
+  deleteAccount,
+  validateApiKey
 } = require('../controllers/auth.controller');
 const validate = require('../middlewares/validate');
 const { protect } = require('../middlewares/auth');
+const { requireInternalSecret } = require('../middlewares/internal.middleware');
 
 const router = Router();
 
@@ -188,6 +190,14 @@ const changePasswordSchema = {
   body: Joi.object({
     oldPassword: Joi.string().required(),
     newPassword: Joi.string().min(8).required(),
+  }),
+};
+
+const validateApiKeySchema = {
+  body: Joi.object({
+    apiKey: Joi.string().required().messages({
+      'any.required': 'API Key is required for internal validation',
+    }),
   }),
 };
 
@@ -386,5 +396,43 @@ router.get('/me', protect, getMe);
  *         description: Unauthorized.
  */
 router.delete('/account', protect, deleteAccount);
+
+/**
+ * @swagger
+ * /api/v1/auth/internal/validate-api-key:
+ *   post:
+ *     tags:
+ *       - Auth - Internal M2M
+ *     summary: Validate an API Key (Internal M2M)
+ *     description: >
+ *       Used exclusively by the API Gateway or internal microservices to validate client API Keys.
+ *       Requires `x-internal-secret` header.
+ *     parameters:
+ *       - in: header
+ *         name: x-internal-secret
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Shared internal secret
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - apiKey
+ *             properties:
+ *               apiKey:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: API Key is valid. Returns user claims.
+ *       401:
+ *         description: Invalid API Key or missing/invalid internal secret.
+ *       403:
+ *         description: Account associated with the API Key is not active.
+ */
+router.post('/internal/validate-api-key', requireInternalSecret, validate(validateApiKeySchema), validateApiKey);
 
 module.exports = router;
