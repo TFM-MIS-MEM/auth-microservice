@@ -25,7 +25,21 @@ const limiter = rateLimit({
   message: { status: 'fail', message: 'Too many requests from this IP, please try again later.' },
 });
 
-app.use(helmet());
+// Helmet Condicional
+app.use((req, res, next) => {
+  // Verificamos si la petición va dirigida a la documentación
+  if (req.path.startsWith('/api/v1/docs')) {
+    // Helmet relajado SÓLO para Swagger
+    helmet({
+      contentSecurityPolicy: false,
+      crossOriginEmbedderPolicy: false,
+    })(req, res, next);
+  } else {
+    // Helmet estricto para el resto de la API (rutas, usuarios, etc)
+    helmet()(req, res, next);
+  }
+});
+
 app.use(cors());
 app.use('/api', limiter); // Apply rate limiter to all /api routes
 
