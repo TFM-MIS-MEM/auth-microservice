@@ -43,7 +43,7 @@ const swaggerSpec = swaggerJsdoc(swaggerOptions);
  * @param {import('express').Application} app
  */
 const setupSwagger = (app) => {
-  app.use('/api/v1/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+  app.use('/api/v1/auth/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 };
 
 module.exports = { setupSwagger, swaggerSpec };
