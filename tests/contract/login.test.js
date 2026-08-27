@@ -28,6 +28,21 @@ describe('POST /v1/auth/login', () => {
     expect(res).toSatisfyApiSpec();
   });
 
+  it('403 — la cuenta está suspendida', async () => {
+    // La ventana de revocación documentada afecta a los JWT ya emitidos, que
+    // siguen verificando por firma hasta caducar. No habilita a una cuenta
+    // suspendida a obtener uno nuevo: si lo hiciera, bastaría con volver a
+    // iniciar sesión al caducar el token anterior y la suspensión no tendría
+    // efecto alguno sobre el canal web.
+    const { email, password } = await api.createAccount();
+    await db.patchAccountDocument(email, { status: 'suspended' });
+
+    const res = await api.login({ email, password });
+
+    expect(res.status).toBe(403);
+    expect(res).toSatisfyApiSpec();
+  });
+
   it('429 — se supera el límite de tasa', async () => {
     const res = await api.burst(() =>
       api.login({ email: api.uniqueEmail('rate'), password: api.PASSWORD }),

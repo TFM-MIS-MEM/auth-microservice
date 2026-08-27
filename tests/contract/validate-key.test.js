@@ -12,15 +12,19 @@
 const api = require('../support/api');
 const db = require('../support/db');
 
-const validateKey = (apiKey) => {
-  const req = api
-    .request(api.app)
-    .post('/v1/auth/validate-key')
-    // El contrato declara `apiKeyAuth` e `internalSecret` en el mismo objeto de
-    // seguridad: hacen falta las dos credenciales a la vez. El aislamiento de
-    // red es la protección principal, pero en el despliegue con
-    // `docker-compose` todos los servicios comparten red.
-    .set('X-Internal-Secret', process.env.INTERNAL_API_SECRET);
+/**
+ * El contrato declara `apiKeyAuth` e `internalSecret` en el mismo objeto de
+ * seguridad: hacen falta las dos credenciales a la vez. El aislamiento de red
+ * es la protección principal, pero en el despliegue con `docker-compose` todos
+ * los servicios comparten red, de modo que sin el secreto compartido cualquier
+ * contenedor podría interrogar un endpoint que valida credenciales.
+ *
+ * `internalSecret` admite el valor `null` para omitir la cabecera.
+ */
+const validateKey = (apiKey, { internalSecret = process.env.INTERNAL_API_SECRET } = {}) => {
+  const req = api.request(api.app).post('/v1/auth/validate-key');
+
+  if (internalSecret !== null) req.set('X-Internal-Secret', internalSecret);
 
   // La clave viaja en cabecera, no en el cuerpo: reduce su exposición en
   // registros y trazas.
@@ -88,6 +92,27 @@ describe('POST /v1/auth/validate-key', () => {
   it('401 — la clave no corresponde a ninguna cuenta', async () => {
     const res = await validateKey('clave-que-no-existe');
 
+    expect(res.status).toBe(401);
+    expect(res).toSatisfyApiSpec();
+  });
+
+  it('401 — sin la cabecera X-Internal-Secret, aunque la clave sea válida', async () => {
+    const { apiKey } = await api.createAccount();
+
+    const res = await validateKey(apiKey, { internalSecret: null });
+
+    expect(res.status).toBe(401);
+    expect(res).toSatisfyApiSpec();
+  });
+
+  it('401 — con un secreto interno que no coincide', async () => {
+    const { apiKey } = await api.createAccount();
+
+    const res = await validateKey(apiKey, { internalSecret: 'secreto-equivocado' });
+
+    // 401 y no 403: el contrato no declara 403 en esta operación, y distinguir
+    // «falta el secreto» de «el secreto no coincide» sólo orientaría a quien
+    // estuviese probando valores a ciegas.
     expect(res.status).toBe(401);
     expect(res).toSatisfyApiSpec();
   });

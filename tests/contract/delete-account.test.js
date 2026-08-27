@@ -45,6 +45,19 @@ describe('DELETE /v1/auth/account', () => {
     expect(res).toSatisfyApiSpec();
   });
 
+  it('401 — el JWT deja de servir en cuanto la cuenta se ha eliminado', async () => {
+    // El token sigue verificando por firma: lo que lo invalida es que la cuenta
+    // a la que apunta ya no existe. Sin esta comprobación, el borrado del RGPD
+    // no surtiría efecto hasta que caducase el token.
+    const { token, password } = await api.createAuthenticatedAccount();
+    await deleteAccount(token, { password });
+
+    const res = await api.request(api.app).get('/v1/auth/me').set(api.bearer(token));
+
+    expect(res.status).toBe(401);
+    expect(res).toSatisfyApiSpec();
+  });
+
   it('403 — la cuenta está suspendida (credencial válida, sin permiso)', async () => {
     const { token, password, email } = await api.createAuthenticatedAccount();
     await db.patchAccountDocument(email, { status: 'suspended' });
