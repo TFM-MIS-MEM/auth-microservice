@@ -1,11 +1,10 @@
 const AppError = require('../utils/AppError');
 
 /**
- * 404 Not Found handler.
- * Catches any request that didn't match a defined route.
+ * Captura toda petición que no case con ninguna ruta declarada.
  */
 const notFound = (req, _res, next) => {
-  next(new AppError(`Resource not found: ${req.originalUrl}`, 404));
+  next(new AppError(`Resource not found: ${req.originalUrl}`, 404, 'NOT_FOUND'));
 };
 
 module.exports = notFound;

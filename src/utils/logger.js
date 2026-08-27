@@ -1,6 +1,10 @@
 const config = require('../config');
 
 const LOG_LEVELS = {
+  // `silent` no emite nada: es el nivel de la suite de contrato, donde los
+  // errores esperados de los casos 4xx son parte de la prueba y no ruido que
+  // deba llegar a la consola.
+  silent: -1,
   error: 0,
   warn: 1,
   info: 2,

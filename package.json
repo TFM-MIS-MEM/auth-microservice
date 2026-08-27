@@ -24,7 +24,7 @@
     "prepare": "husky"
   },
   "lint-staged": {
-    "*.{js,json,css,md}": [
+    "!(tests/legacy/**/*).{js,json,css,md}": [
       "prettier --write"
     ]
   },
@@ -45,11 +45,11 @@
     "express-rate-limit": "^7.5.0",
     "helmet": "^8.0.0",
     "joi": "^18.0.2",
+    "js-yaml": "^4.1.1",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^8.10.1",
     "morgan": "^1.10.0",
     "resend": "^6.10.0",
-    "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1"
   },
   "devDependencies": {

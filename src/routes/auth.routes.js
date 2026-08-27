@@ -1,178 +1,45 @@
 'use strict';
 
+/**
+ * Rutas del servicio de autenticación.
+ *
+ * El contrato de cada operación —cuerpos, respuestas y códigos— vive en
+ * `openapi/auth.yaml` y no se duplica aquí en anotaciones: dos descripciones de
+ * lo mismo divergen en cuanto una se mueve.
+ */
+
 const { Router } = require('express');
 const Joi = require('joi');
-const { 
-  registerUser, 
-  loginUser,
-  forgotPassword,
-  resetPassword,
-  changePassword,
-  rotateApiKey,
-  getMe,
-  deleteAccount,
-  validateApiKey
-} = require('../controllers/auth.controller');
+const controller = require('../controllers/auth.controller');
 const validate = require('../middlewares/validate');
-const { protect } = require('../middlewares/auth');
+const { protect, requireAdmin } = require('../middlewares/auth');
 const { requireInternalSecret } = require('../middlewares/internal.middleware');
+const { credentialRateLimiter } = require('../middlewares/rateLimit');
 
 const router = Router();
 
 // ---------------------
-// JOI VALIDATION SCHEMAS
+// ESQUEMAS DE VALIDACIÓN
 // ---------------------
 
 /**
- * @swagger
- * components:
- *   schemas:
- *     RegisterRequest:
- *       type: object
- *       required:
- *         - email
- *         - password
- *       properties:
- *         email:
- *           type: string
- *           format: email
- *           example: "user@example.com"
- *         password:
- *           type: string
- *           minLength: 8
- *           example: "SuperSecret123!"
- *         role:
- *           type: string
- *           enum: [user, admin, researcher]
- *           default: user
- *           example: "user"
- *     RegisterResponse:
- *       type: object
- *       properties:
- *         status:
- *           type: string
- *           example: success
- *         message:
- *           type: string
- *           example: "User registered successfully. Store your API Key — it will not be shown again."
- *         data:
- *           type: object
- *           properties:
- *             user:
- *               $ref: '#/components/schemas/AuthUser'
- *             apiKey:
- *               type: string
- *               description: Plaintext API Key. Shown only once — store it securely.
- *               example: "a3f1c2d4e5b6..."
- *     LoginRequest:
- *       type: object
- *       required:
- *         - email
- *         - password
- *       properties:
- *         email:
- *           type: string
- *           format: email
- *           example: "user@example.com"
- *         password:
- *           type: string
- *           example: "SuperSecret123!"
- *     LoginResponse:
- *       type: object
- *       properties:
- *         status:
- *           type: string
- *           example: success
- *         message:
- *           type: string
- *           example: "Login successful."
- *         data:
- *           type: object
- *           properties:
- *             user:
- *               $ref: '#/components/schemas/AuthUser'
- *             token:
- *               type: string
- *               description: Signed JWT. Include as Bearer token in Authorization header.
- *               example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+ * `role` NO figura aquí a propósito. Con `stripUnknown` activo, enviarlo no es
+ * un error: se descarta en silencio y el servicio asigna siempre `CUSTOMER`.
  */
-
 const registerSchema = {
   body: Joi.object({
-    email: Joi.string().email().required().messages({
-      'string.email': 'Please provide a valid email address',
-      'any.required': 'Email is required',
-    }),
-    password: Joi.string().min(8).required().messages({
-      'string.min': 'Password must be at least 8 characters long',
-      'any.required': 'Password is required',
-    }),
-    role: Joi.string().valid('user', 'admin', 'researcher').default('user'),
+    email: Joi.string().email().required(),
+    password: Joi.string().min(8).required(),
   }),
 };
 
 const loginSchema = {
   body: Joi.object({
-    email: Joi.string().email().required().messages({
-      'string.email': 'Please provide a valid email address',
-      'any.required': 'Email is required',
-    }),
-    password: Joi.string().required().messages({
-      'any.required': 'Password is required',
-    }),
+    email: Joi.string().email().required(),
+    password: Joi.string().required(),
   }),
 };
 
-/**
- * @swagger
- * components:
- *   schemas:
- *     ForgotPasswordRequest:
- *       type: object
- *       required:
- *         - email
- *       properties:
- *         email:
- *           type: string
- *           format: email
- *     ResetPasswordRequest:
- *       type: object
- *       required:
- *         - token
- *         - password
- *       properties:
- *         token:
- *           type: string
- *           description: The token received in the email link
- *         password:
- *           type: string
- *           description: The new password (min. 8 characters)
- *           minLength: 8
- *     ChangePasswordRequest:
- *       type: object
- *       required:
- *         - oldPassword
- *         - newPassword
- *       properties:
- *         oldPassword:
- *           type: string
- *         newPassword:
- *           type: string
- *           minLength: 8
- *     RotateApiKeyResponse:
- *       type: object
- *       properties:
- *         status:
- *           type: string
- *           example: success
- *         message:
- *           type: string
- *         data:
- *           type: object
- *           properties:
- *             apiKey:
- *               type: string
- */
 const forgotPasswordSchema = {
   body: Joi.object({
     email: Joi.string().email().required(),
@@ -182,7 +49,7 @@ const forgotPasswordSchema = {
 const resetPasswordSchema = {
   body: Joi.object({
     token: Joi.string().required(),
-    password: Joi.string().min(8).required(),
+    newPassword: Joi.string().min(8).required(),
   }),
 };
 
@@ -193,246 +60,65 @@ const changePasswordSchema = {
   }),
 };
 
-const validateApiKeySchema = {
+const setAccountStatusSchema = {
+  params: Joi.object({
+    accountId: Joi.string().required(),
+  }),
   body: Joi.object({
-    apiKey: Joi.string().required().messages({
-      'any.required': 'API Key is required for internal validation',
-    }),
+    status: Joi.string().valid('active', 'suspended').required(),
   }),
 };
 
 // ---------------------
-// ROUTES — Semantic Versioning handled by parent router (/api/v1/auth)
+// RUTAS — el prefijo /v1/auth lo monta el enrutador padre
 // ---------------------
 
-/**
- * @swagger
- * /api/v1/auth/register:
- *   post:
- *     tags:
- *       - Auth
- *     summary: Register a new user
- *     description: >
- *       Creates a new user account and returns a one-time plaintext API Key.
- *       The API Key is hashed before storage and **cannot be recovered** after this response.
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/RegisterRequest'
- *     responses:
- *       201:
- *         description: User registered successfully. API Key shown only once.
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/RegisterResponse'
- *       400:
- *         description: Validation error (missing or malformed fields).
- *       409:
- *         description: Email already registered.
- *       500:
- *         description: Internal server error.
- */
-router.post('/register', validate(registerSchema), registerUser);
+router.post('/register', validate(registerSchema), controller.registerAccount);
+
+router.post('/login', credentialRateLimiter, validate(loginSchema), controller.login);
+
+router.post(
+  '/forgot-password',
+  credentialRateLimiter,
+  validate(forgotPasswordSchema),
+  controller.forgotPassword,
+);
+
+router.post(
+  '/reset-password',
+  credentialRateLimiter,
+  validate(resetPasswordSchema),
+  controller.resetPassword,
+);
+
+router.post('/change-password', protect, validate(changePasswordSchema), controller.changePassword);
 
 /**
- * @swagger
- * /api/v1/auth/login:
- *   post:
- *     tags:
- *       - Auth
- *     summary: Log in and obtain a JWT
- *     description: >
- *       Validates user credentials and returns a signed JWT for subsequent
- *       authenticated requests. The token contains id, email and role claims.
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/LoginRequest'
- *     responses:
- *       200:
- *         description: Login successful. Returns a signed JWT.
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/LoginResponse'
- *       400:
- *         description: Validation error (missing or malformed fields).
- *       401:
- *         description: Invalid email or password.
- *       403:
- *         description: Account is inactive or suspended.
- *       500:
- *         description: Internal server error.
+ * Sin validación de cuerpo: el contrato no declara 400 en esta operación, así
+ * que una contraseña de confirmación ausente se trata como una confirmación
+ * incorrecta (401) y no como una petición mal formada.
  */
-router.post('/login', validate(loginSchema), loginUser);
+router.post('/rotate-key', protect, controller.rotateKey);
+
+router.get('/me', protect, controller.getMe);
+
+router.post('/suspend', protect, controller.suspendOwnAccount);
+
+router.patch(
+  '/accounts/:accountId/status',
+  protect,
+  requireAdmin,
+  validate(setAccountStatusSchema),
+  controller.setAccountStatus,
+);
+
+// Mismo criterio que en `rotate-key` respecto a la contraseña de confirmación.
+router.delete('/account', protect, controller.deleteAccount);
 
 /**
- * @swagger
- * /api/v1/auth/forgot-password:
- *   post:
- *     tags:
- *       - Auth - Credential Recovery
- *     summary: Request password reset link
- *     description: Sends an email with a reset token if the email exists.
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/ForgotPasswordRequest'
- *     responses:
- *       200:
- *         description: Email sent successfully.
- *       404:
- *         description: There is no account associated with this email address.
+ * Operación interna: exige la API KEY a validar y, además, el secreto
+ * compartido que acredita al llamante como componente de la plataforma.
  */
-router.post('/forgot-password', validate(forgotPasswordSchema), forgotPassword);
-
-/**
- * @swagger
- * /api/v1/auth/reset-password:
- *   post:
- *     tags:
- *       - Auth - Credential Recovery
- *     summary: Reset password via token
- *     description: Replaces the forgotten password using the emailed token.
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/ResetPasswordRequest'
- *     responses:
- *       200:
- *         description: Password reset successful.
- *       400:
- *         description: Invalid or expired token.
- */
-router.post('/reset-password', validate(resetPasswordSchema), resetPassword);
-
-/**
- * @swagger
- * /api/v1/auth/change-password:
- *   post:
- *     tags:
- *       - Auth - Internal Accounts
- *     summary: Change known password
- *     description: Updates the password of an authenticated user.
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/ChangePasswordRequest'
- *     responses:
- *       200:
- *         description: Password changed successfully.
- *       401:
- *         description: Unauthorized - Old password incorrect or missing token.
- */
-router.post('/change-password', protect, validate(changePasswordSchema), changePassword);
-
-/**
- * @swagger
- * /api/v1/auth/rotate-api-key:
- *   post:
- *     tags:
- *       - Auth - Internal Accounts
- *     summary: Rotate master API Key
- *     description: Generates a new API Key for the authenticated user and revokes the old one.
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: API Key rotated successfully.
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/RotateApiKeyResponse'
- *       401:
- *         description: Unauthorized.
- */
-router.post('/rotate-api-key', protect, rotateApiKey);
-
-/**
- * @swagger
- * /api/v1/auth/me:
- *   get:
- *     tags:
- *       - Auth - Internal Accounts
- *     summary: Get current user profile
- *     description: Retrieves the current user's data from the database. Commonly used by the frontend to verify session validity and load RBAC roles.
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: User profile retrieved successfully.
- *       401:
- *         description: Unauthorized. Invalid token or user no longer exists.
- */
-router.get('/me', protect, getMe);
-
-/**
- * @swagger
- * /api/v1/auth/account:
- *   delete:
- *     tags:
- *       - Auth - Internal Accounts
- *     summary: Delete user account
- *     description: Permanently deletes the authenticated user from the database.
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       204:
- *         description: Account successfully deleted. No content returned.
- *       401:
- *         description: Unauthorized.
- */
-router.delete('/account', protect, deleteAccount);
-
-/**
- * @swagger
- * /api/v1/auth/internal/validate-api-key:
- *   post:
- *     tags:
- *       - Auth - Internal M2M
- *     summary: Validate an API Key (Internal M2M)
- *     description: >
- *       Used exclusively by the API Gateway or internal microservices to validate client API Keys.
- *       Requires `x-internal-secret` header.
- *     parameters:
- *       - in: header
- *         name: x-internal-secret
- *         required: true
- *         schema:
- *           type: string
- *         description: Shared internal secret
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - apiKey
- *             properties:
- *               apiKey:
- *                 type: string
- *     responses:
- *       200:
- *         description: API Key is valid. Returns user claims.
- *       401:
- *         description: Invalid API Key or missing/invalid internal secret.
- *       403:
- *         description: Account associated with the API Key is not active.
- */
-router.post('/internal/validate-api-key', requireInternalSecret, validate(validateApiKeySchema), validateApiKey);
+router.post('/validate-key', requireInternalSecret, controller.validateKey);
 
 module.exports = router;

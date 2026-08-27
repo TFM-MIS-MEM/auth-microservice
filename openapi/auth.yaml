@@ -142,6 +142,19 @@ paths:
                     example: 3600
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: |
+            La cuenta está suspendida (`ACCOUNT_SUSPENDED`).
+
+            La ventana de revocación documentada afecta a los JWT **ya
+            emitidos**, que siguen siendo válidos hasta caducar. No habilita a
+            una cuenta suspendida a obtener uno nuevo: de lo contrario la
+            suspensión carecería de efecto sobre el canal web, dado que
+            bastaría con volver a iniciar sesión al caducar el token anterior.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorReport'
         '429':
           $ref: '#/components/responses/TooManyRequests'
 
@@ -452,9 +465,18 @@ paths:
         La clave viaja en cabecera y no en el cuerpo, para reducir su exposición
         en registros y trazas. La pasarela cachea el resultado unos 60 segundos.
 
+        Exige **ambas credenciales simultáneamente**: la clave a validar y un
+        secreto compartido que acredita al llamante como componente interno de
+        la plataforma. El aislamiento de red es la protección principal, pero
+        en despliegues donde todos los servicios comparten red ---como el
+        entorno de desarrollo con `docker-compose`--- constituiría el único
+        control. El secreto compartido proporciona defensa en profundidad sobre
+        un endpoint que, por su naturaleza, valida credenciales.
+
         **Patrón:** RETRIEVAL OPERATION.
       security:
         - apiKeyAuth: []
+          internalSecret: []
       responses:
         '200':
           description: Resultado de la validación
@@ -492,6 +514,13 @@ components:
       description: |
         Credencial del canal API. Validada contra este servicio con caché de
         corta duración en la pasarela.
+    internalSecret:
+      type: apiKey
+      in: header
+      name: X-Internal-Secret
+      description: |
+        Secreto compartido entre los componentes internos de la plataforma.
+        Solo se emplea en operaciones no expuestas a través de la pasarela.
 
   schemas:
 

@@ -2,33 +2,45 @@ const logger = require('../utils/logger');
 const config = require('../config');
 
 /**
- * Global Error Handler Middleware — Error Report Pattern.
+ * Códigos por defecto cuando el error no trae uno propio. Mantiene la respuesta
+ * conforme al esquema `ErrorReport`, que exige `code` siempre.
+ */
+const DEFAULT_CODES = {
+  400: 'BAD_REQUEST',
+  401: 'UNAUTHORIZED',
+  403: 'FORBIDDEN',
+  404: 'NOT_FOUND',
+  409: 'CONFLICT',
+  429: 'RATE_LIMIT_EXCEEDED',
+};
+
+/**
+ * Manejador global de errores — patrón ERROR REPORT.
  *
- * Returns a consistent JSON error response:
- * { status, message, details? }
- *
- * In development mode, also includes the error stack trace.
+ * Devuelve siempre `{ code, message }`, con `details` opcional, tal y como lo
+ * declara `components.schemas.ErrorReport` en el contrato.
  */
 // eslint-disable-next-line no-unused-vars
 const errorHandler = (err, _req, res, _next) => {
   const statusCode = err.statusCode || 500;
-  const status = err.status || 'error';
 
   logger.error(`${statusCode} — ${err.message}`);
 
   const response = {
-    status,
+    code: err.code || DEFAULT_CODES[statusCode] || 'INTERNAL_ERROR',
+    // Un error no operacional es un fallo del servicio: su mensaje puede
+    // contener detalles de implementación y no se devuelve al cliente.
     message: err.isOperational ? err.message : 'Internal server error',
   };
 
-  // Include stack trace in non-production environments
-  if (!config.isProduction) {
-    response.stack = err.stack;
-  }
-
-  // Include validation details if present
   if (err.details) {
     response.details = err.details;
+  }
+
+  // La traza sólo en desarrollo: en test ensucia la comparación contra el
+  // contrato y en producción es una fuga de información.
+  if (!config.isProduction && !config.isTest) {
+    response.details = { ...(response.details || {}), stack: err.stack };
   }
 
   res.status(statusCode).json(response);

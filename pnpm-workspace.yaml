@@ -1,2 +1,11 @@
+# pnpm 11 exige decidir explícitamente qué dependencias pueden ejecutar sus
+# scripts de instalación. Sin una respuesta a las dos, `pnpm install` termina
+# con ERR_PNPM_IGNORED_BUILDS y el hook de pre-commit falla.
+allowBuilds:
+  # Telemetría. No se ejecuta.
+  '@scarf/scarf': false
+  # Descarga el binario de mongod que usa la suite de contrato.
+  mongodb-memory-server: true
+
 onlyBuiltDependencies:
   - mongodb-memory-server

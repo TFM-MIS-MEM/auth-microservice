@@ -13,7 +13,14 @@ const api = require('../support/api');
 const db = require('../support/db');
 
 const validateKey = (apiKey) => {
-  const req = api.request(api.app).post('/v1/auth/validate-key');
+  const req = api
+    .request(api.app)
+    .post('/v1/auth/validate-key')
+    // El contrato declara `apiKeyAuth` e `internalSecret` en el mismo objeto de
+    // seguridad: hacen falta las dos credenciales a la vez. El aislamiento de
+    // red es la protección principal, pero en el despliegue con
+    // `docker-compose` todos los servicios comparten red.
+    .set('X-Internal-Secret', process.env.INTERNAL_API_SECRET);
 
   // La clave viaja en cabecera, no en el cuerpo: reduce su exposición en
   // registros y trazas.

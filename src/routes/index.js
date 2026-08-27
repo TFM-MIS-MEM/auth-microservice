@@ -4,10 +4,10 @@ const authRoutes = require('./auth.routes');
 
 const router = Router();
 
-// --- Health Check ---
+// El health check queda fuera del versionado: lo consumen la sonda de
+// Kubernetes y el compose, no los clientes de la API.
 router.use('/health', healthRoutes);
 
-// --- Auth (Semantic Versioning: /api/v1/auth) ---
-router.use('/api/v1/auth', authRoutes);
+router.use('/v1/auth', authRoutes);
 
 module.exports = router;
