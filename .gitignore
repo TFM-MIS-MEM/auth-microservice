@@ -140,3 +140,5 @@ vite.config.ts.timestamp-*
 
 # macOS
 .DS_Store
+# Almacén local de pnpm — se genera al instalar, nunca se versiona
+.pnpm-store/
