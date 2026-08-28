@@ -1,0 +1,605 @@
+openapi: 3.0.3
+
+info:
+  title: Servicio de Autenticación
+  description: |
+    Gestiona las cuentas del servicio, las credenciales de ambos canales de
+    consumo y el ciclo de vida de la cuenta.
+
+    ## Modelo de actores
+
+    Cada registro crea una **cuenta** (`Account`), entidad propietaria de las
+    galerías, del plan de precio y de las cuotas de consumo. En esta versión la
+    relación entre cuenta y usuario es 1:1, pero la propiedad de los recursos se
+    modela contra `accountId` y no contra `userId`, de forma que una futura
+    evolución a cuentas multiusuario no requiera migrar los datos existentes.
+
+    ## Credenciales
+
+    - **JWT**: credencial del canal web. Se valida **por firma** en la pasarela,
+      sin consultar a este servicio. Caducidad de 60 minutos. Ello implica una
+      ventana de revocación: una cuenta suspendida puede seguir operando por el
+      canal web hasta que caduque su token.
+    - **API KEY**: credencial del canal API. Cadena opaca sin información
+      interna, por lo que exige consulta a `POST /v1/auth/validate-key`. Se
+      almacena hasheada y la pasarela cachea el resultado unos 60 segundos.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:3000
+    description: Desarrollo local — acceso directo al servicio, sin pasarela
+  - url: http://localhost:8000
+    description: Desarrollo local a través de Kong
+  - url: https://api.example.com
+    description: Producción
+
+tags:
+  - name: Registro y sesión
+  - name: Credenciales
+  - name: Ciclo de vida de la cuenta
+  - name: Interno
+
+paths:
+
+  /v1/auth/register:
+    post:
+      tags: [Registro y sesión]
+      summary: Registrar una cuenta
+      operationId: register
+      description: |
+        Registra una cuenta usando el correo como nombre de usuario.
+
+        Devuelve una **API KEY que solo es visible en este momento**: el
+        servicio almacena únicamente su hash, por lo que no puede recuperarse
+        después. Si el usuario la pierde debe rotarla.
+
+        El rol se asigna siempre como `CUSTOMER`; ningún usuario externo puede
+        crear una cuenta con rol `ADMIN`.
+
+        **Patrón:** STATE CREATION OPERATION.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  format: password
+                  minLength: 8
+      responses:
+        '201':
+          description: Cuenta creada
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accountId, email, apiKey]
+                properties:
+                  accountId:
+                    type: string
+                  email:
+                    type: string
+                    format: email
+                  apiKey:
+                    type: string
+                    description: Visible únicamente en esta respuesta.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: El correo ya está registrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorReport'
+
+  /v1/auth/login:
+    post:
+      tags: [Registro y sesión]
+      summary: Iniciar sesión
+      operationId: login
+      description: |
+        Devuelve un JWT con vigencia de 60 minutos, necesario para operar por el
+        canal web.
+
+        **Patrón:** RETRIEVAL OPERATION. Aunque devuelve un valor calculado y no
+        una representación de recurso, la operación lee el estado almacenado
+        (la cuenta y el hash de su contraseña), por lo que no constituye una
+        COMPUTATION FUNCTION.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  format: password
+      responses:
+        '200':
+          description: Sesión iniciada
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token, expiresIn]
+                properties:
+                  token:
+                    type: string
+                  expiresIn:
+                    type: integer
+                    description: Segundos de vigencia.
+                    example: 3600
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: |
+            La cuenta está suspendida (`ACCOUNT_SUSPENDED`).
+
+            La ventana de revocación documentada afecta a los JWT **ya
+            emitidos**, que siguen siendo válidos hasta caducar. No habilita a
+            una cuenta suspendida a obtener uno nuevo: de lo contrario la
+            suspensión carecería de efecto sobre el canal web, dado que
+            bastaría con volver a iniciar sesión al caducar el token anterior.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorReport'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /v1/auth/forgot-password:
+    post:
+      tags: [Registro y sesión]
+      summary: Solicitar recuperación de contraseña
+      operationId: forgotPassword
+      description: |
+        Envía por correo un enlace de recuperación.
+
+        Devuelve `202` **tanto si el correo existe como si no**, para impedir la
+        enumeración de usuarios registrados.
+
+        **Patrón:** STATE CREATION OPERATION (persiste un token de
+        recuperación).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        '202':
+          description: Solicitud aceptada
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /v1/auth/reset-password:
+    post:
+      tags: [Registro y sesión]
+      summary: Establecer nueva contraseña
+      operationId: resetPassword
+      description: '**Patrón:** STATE TRANSITION OPERATION.'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, newPassword]
+              properties:
+                token:
+                  type: string
+                  description: Token recibido en el correo de recuperación.
+                newPassword:
+                  type: string
+                  format: password
+                  minLength: 8
+      responses:
+        '200':
+          description: Contraseña actualizada
+        '400':
+          description: Token inválido o caducado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorReport'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /v1/auth/change-password:
+    post:
+      tags: [Credenciales]
+      summary: Cambiar la contraseña
+      operationId: changePassword
+      description: '**Patrón:** STATE TRANSITION OPERATION.'
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [oldPassword, newPassword]
+              properties:
+                oldPassword:
+                  type: string
+                  format: password
+                newPassword:
+                  type: string
+                  format: password
+                  minLength: 8
+      responses:
+        '200':
+          description: Contraseña actualizada
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /v1/auth/rotate-key:
+    post:
+      tags: [Credenciales]
+      summary: Rotar la API KEY
+      operationId: rotateKey
+      description: |
+        Genera una API KEY nueva invalidando la anterior de forma inmediata.
+        Como en el registro, la clave solo es visible en esta respuesta.
+
+        **Patrón:** STATE TRANSITION OPERATION.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password:
+                  type: string
+                  format: password
+      responses:
+        '201':
+          description: Clave rotada
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [apiKey]
+                properties:
+                  apiKey:
+                    type: string
+        '401':
+          description: |
+            Credencial de sesión ausente o inválida, o contraseña de
+            confirmación incorrecta (`INVALID_PASSWORD_CONFIRMATION`). La
+            confirmación se considera parte de la autenticación de la
+            operación, no una comprobación de permiso.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorReport'
+        '403':
+          description: |
+            Credencial válida pero la cuenta está suspendida
+            (`ACCOUNT_SUSPENDED`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorReport'
+
+  /v1/auth/me:
+    get:
+      tags: [Registro y sesión]
+      summary: Obtener los datos de la cuenta autenticada
+      operationId: getMe
+      description: '**Patrón:** RETRIEVAL OPERATION.'
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Datos de la cuenta
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /v1/auth/suspend:
+    post:
+      tags: [Ciclo de vida de la cuenta]
+      summary: Suspender la propia cuenta
+      operationId: suspendOwnAccount
+      description: |
+        Suspende la cuenta del solicitante, inhabilitando su acceso por ambos
+        canales sin eliminar dato alguno.
+
+        La reactivación **no puede realizarse por esta vía**: requiere la
+        intervención de un administrador mediante
+        `PATCH /v1/auth/accounts/{accountId}/status`.
+
+        Se emplea `POST` y no `PATCH` porque la operación no actualiza
+        parcialmente un recurso identificado, sino que ejecuta una acción sobre
+        la cuenta del solicitante.
+
+        **Patrón:** STATE TRANSITION OPERATION.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Cuenta suspendida
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: La cuenta ya se encuentra suspendida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorReport'
+
+  /v1/auth/accounts/{accountId}/status:
+    patch:
+      tags: [Ciclo de vida de la cuenta]
+      summary: Cambiar el estado de una cuenta (administración)
+      operationId: setAccountStatus
+      description: |
+        Permite a un administrador suspender la cuenta de un usuario ante un uso
+        indebido del servicio, o reactivar una cuenta previamente suspendida.
+
+        Requiere rol `ADMIN`. Es la única vía de reactivación.
+
+        **Patrón:** STATE TRANSITION OPERATION.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  $ref: '#/components/schemas/AccountStatus'
+      responses:
+        '200':
+          description: Estado actualizado
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/auth/account:
+    delete:
+      tags: [Ciclo de vida de la cuenta]
+      summary: Eliminar la cuenta
+      operationId: deleteAccount
+      description: |
+        Permite ejercer el derecho de supresión previsto en el RGPD.
+
+        Publica el evento `account.deleted` en Kafka, consumido por dos
+        destinatarios independientes: el servicio de reconocimiento facial, que
+        purga en cascada galerías, identidades, rostros y puntos de
+        notificación de la cuenta; y el servicio de pricing, que cancela la
+        suscripción asociada en la pasarela de pago.
+
+        La propagación del borrado no es una mejora opcional: las plantillas
+        biométricas son datos personales de categoría especial.
+
+        **Patrón:** STATE TRANSITION OPERATION.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password:
+                  type: string
+                  format: password
+      responses:
+        '204':
+          description: Cuenta eliminada
+        '401':
+          description: |
+            Credencial de sesión ausente o inválida, o contraseña de
+            confirmación incorrecta (`INVALID_PASSWORD_CONFIRMATION`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorReport'
+        '403':
+          description: |
+            Credencial válida pero la cuenta está suspendida
+            (`ACCOUNT_SUSPENDED`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorReport'
+
+  /v1/auth/validate-key:
+    post:
+      tags: [Interno]
+      summary: Validar una API KEY (uso interno de la pasarela)
+      operationId: validateKey
+      description: |
+        **Endpoint de acceso exclusivamente interno.** No debe exponerse a
+        través de la pasarela.
+
+        Devuelve el `accountId` además del veredicto: la pasarela lo necesita
+        para propagarlo en la cabecera `X-Account-Id` hacia el microservicio de
+        destino. Sin él, el servicio de reconocimiento facial no puede
+        determinar la propiedad de las galerías.
+
+        La clave viaja en cabecera y no en el cuerpo, para reducir su exposición
+        en registros y trazas. La pasarela cachea el resultado unos 60 segundos.
+
+        Exige **ambas credenciales simultáneamente**: la clave a validar y un
+        secreto compartido que acredita al llamante como componente interno de
+        la plataforma. El aislamiento de red es la protección principal, pero
+        en despliegues donde todos los servicios comparten red ---como el
+        entorno de desarrollo con `docker-compose`--- constituiría el único
+        control. El secreto compartido proporciona defensa en profundidad sobre
+        un endpoint que, por su naturaleza, valida credenciales.
+
+        **Patrón:** RETRIEVAL OPERATION.
+      security:
+        - apiKeyAuth: []
+          internalSecret: []
+      responses:
+        '200':
+          description: Resultado de la validación
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [valid, accountId, status]
+                properties:
+                  valid:
+                    type: boolean
+                  accountId:
+                    type: string
+                  status:
+                    $ref: '#/components/schemas/AccountStatus'
+                  role:
+                    $ref: '#/components/schemas/Role'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Credencial del canal web. Validada por firma en la pasarela, sin
+        consulta a este servicio. Vigencia de 60 minutos.
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: |
+        Credencial del canal API. Validada contra este servicio con caché de
+        corta duración en la pasarela.
+    internalSecret:
+      type: apiKey
+      in: header
+      name: X-Internal-Secret
+      description: |
+        Secreto compartido entre los componentes internos de la plataforma.
+        Solo se emplea en operaciones no expuestas a través de la pasarela.
+
+  schemas:
+
+    AccountStatus:
+      type: string
+      enum: [active, suspended]
+
+    Role:
+      type: string
+      enum: [CUSTOMER, ADMIN]
+
+    Account:
+      type: object
+      required: [accountId, email, status, role, createdAt]
+      properties:
+        accountId:
+          type: string
+        email:
+          type: string
+          format: email
+        status:
+          $ref: '#/components/schemas/AccountStatus'
+        role:
+          $ref: '#/components/schemas/Role'
+        createdAt:
+          type: string
+          format: date-time
+
+    ErrorReport:
+      type: object
+      description: |
+        Aplicación del patrón ERROR REPORT. El campo `code` permite distinguir
+        subtipos dentro de un mismo código de estado HTTP.
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          example: EMAIL_ALREADY_REGISTERED
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+
+  responses:
+
+    BadRequest:
+      description: Petición mal formada
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorReport'
+
+    Unauthorized:
+      description: Credencial ausente o inválida
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorReport'
+
+    Forbidden:
+      description: Credencial válida pero sin permiso suficiente
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorReport'
+
+    NotFound:
+      description: Recurso no encontrado
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorReport'
+
+    TooManyRequests:
+      description: Límite de tasa superado
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorReport'

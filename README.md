@@ -23,8 +23,8 @@ El código está dividido en capas lógicas estrictas para favorecer el mantenim
 
 En lugar de manejar errores localmente en cada controlador, se centralizan:
 
-- **`AppError` (`src/utils/AppError.js`)**: Clase extendida para lanzar errores operacionales (ej. `new AppError("User not found", 404)`).
-- **`errorHandler` (`src/middlewares/errorHandler.js`)**: Interceptador global en `src/app.js` que estandariza todas las respuestas de error en formato JSON consistente: `{ status, message, details }`. Evita fugas de información de stack trace en producción.
+- **`AppError` (`src/utils/AppError.js`)**: Clase extendida para lanzar errores operacionales, con estado HTTP y código simbólico (ej. `new AppError('Account not found', 404, 'ACCOUNT_NOT_FOUND')`).
+- **`errorHandler` (`src/middlewares/errorHandler.js`)**: Interceptador global en `src/app.js` que estandariza todas las respuestas de error como `{ code, message, details? }`, el esquema `ErrorReport` del contrato. El `code` permite distinguir subtipos dentro de un mismo estado HTTP (`ACCOUNT_SUSPENDED` frente a `FORBIDDEN` en un 403) sin obligar al cliente a interpretar el texto. La traza sólo se incluye en desarrollo.
 - **`notFound` (`src/middlewares/notFound.js`)**: Captura peticiones a rutas inexistentes y lanza un error `404`.
 
 ### 3. Validación Estricta con Joi
@@ -40,13 +40,13 @@ Implementado globalmente en `src/app.js`:
 
 - **Helmet**: Protege aplicando headers HTTP seguros.
 - **CORS**: Habilita configuración controlada del intercambio cruzado de recursos.
-- **Rate Limiting (`express-rate-limit`)**: Limita peticiones por IP (ej. 100 peticiones cada 15 min en `/api`) para prevenir ataques de denegación de servicio o fuerza bruta.
+- **Rate Limiting (`express-rate-limit`)**: 100 peticiones por IP cada 15 minutos, montado **sólo** sobre `login`, `forgot-password` y `reset-password` (`src/middlewares/rateLimit.js`). No es global: únicamente esas tres operaciones declaran `429` en el contrato, y devolverlo en las demás sería una respuesta no conforme. El límite general por plan es responsabilidad de Kong.
 
-### 5. Documentación Dinámica (Swagger / OpenAPI)
+### 5. Documentación (Swagger / OpenAPI)
 
-Las APIs se autodocumentan leyendo comentarios _JSDoc_ presentes sobre las rutas.
+La especificación **es** la fuente de verdad, no un artefacto derivado del código: `src/config/swagger.js` carga `openapi/auth.yaml` —el mismo fichero contra el que la suite de contrato valida cada respuesta— y lo sirve tal cual. No se generan anotaciones _JSDoc_ en las rutas: dos descripciones de la misma API divergen en cuanto una se mueve, y aquí una desviación de la documentación hace fallar los tests.
 
-- Interfaz disponible en `/api/v1/docs` (configurada vía `src/config/swagger.js`).
+- Interfaz en `/docs` y especificación en `/openapi.json`, ambas fuera del versionado.
 
 ### 6. Calidad del Código y Git Hooks (Husky)
 
@@ -123,6 +123,31 @@ pnpm run docker:prod
 - `pnpm run lint`: Busca anomalías en el código base.
 - `pnpm run lint:fix`: Autocorrige fallos sintácticos (espaciados, comillas).
 - `pnpm run format`: Prettier fuerza un formateo a lo largo de toda la fuente del proyecto de los archivos configurados (`*.js`).
+
+---
+
+## ⚠️ Nota de migración — colección `accounts`
+
+La entidad `AuthUser` pasó a llamarse `Account` y su colección de `authusers`
+a `accounts` (issue [#25](https://github.com/TFM-MIS-MEM/docs/issues/25)). Con
+ella cambiaron los valores admitidos en dos campos:
+
+| Campo    | Antes                             | Ahora                 |
+| -------- | --------------------------------- | --------------------- |
+| `role`   | `user`, `admin`, `researcher`     | `CUSTOMER`, `ADMIN`   |
+| `status` | `active`, `inactive`, `suspended` | `active`, `suspended` |
+
+**No se ha escrito ningún script de migración: se recrea la base.** Los datos
+existentes son cuentas de desarrollo sin valor, y `researcher` pertenece a la
+solución de investigación, que no se implementa; convertirlo no tendría destino.
+
+```bash
+docker compose down -v   # descarta el volumen de MongoDB
+docker compose up --build
+```
+
+Una base anterior que no se recree deja sus documentos en `authusers`, donde el
+servicio ya no los busca: las cuentas parecerán no existir en lugar de fallar.
 
 ---
 

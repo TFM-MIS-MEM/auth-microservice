@@ -1,7 +1,6 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
 const morgan = require('morgan');
 const routes = require('./routes');
 const { setupSwagger } = require('./config/swagger');
@@ -11,46 +10,53 @@ const config = require('./config');
 
 const app = express();
 
+// Los microservicios sólo son alcanzables a través de Kong: la IP real del
+// cliente llega en X-Forwarded-For y la escribe la pasarela.
+app.set('trust proxy', 1);
+
 // ---------------------
-// Security Middleware & Rate Limiting
+// Seguridad
 // ---------------------
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  limit: 100, // Limit each IP to 100 requests per `window` (here, per 15 minutes)
-  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-  message: { status: 'fail', message: 'Too many requests from this IP, please try again later.' },
+app.use((req, res, next) => {
+  if (req.path.startsWith('/docs')) {
+    // Swagger UI necesita estilos y scripts en línea; el relajo se acota a ella.
+    helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false })(req, res, next);
+  } else {
+    helmet()(req, res, next);
+  }
 });
 
-app.use(helmet());
 app.use(cors());
-app.use('/api', limiter); // Apply rate limiter to all /api routes
+
+// El limitador de tasa se monta por operación en `src/routes/auth.routes.js`:
+// sólo tres del contrato declaran 429 y devolverlo en las demás sería una
+// respuesta no conforme.
 
 // ---------------------
-// Request Parsing
+// Lectura del cuerpo
 // ---------------------
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // ---------------------
-// HTTP Request Logging
+// Trazas HTTP
 // ---------------------
 if (!config.isTest) {
   app.use(morgan('dev'));
 }
 
 // ---------------------
-// API Documentation (Swagger)
+// Documentación (/docs y /openapi.json)
 // ---------------------
 setupSwagger(app);
 
 // ---------------------
-// API Routes
+// Rutas
 // ---------------------
 app.use(routes);
 
 // ---------------------
-// Error Handling (Error Report Pattern)
+// Errores — patrón ERROR REPORT
 // ---------------------
 app.use(notFound);
 app.use(errorHandler);

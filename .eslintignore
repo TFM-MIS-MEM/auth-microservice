@@ -1,0 +1,8 @@
+node_modules
+coverage
+dist
+
+# Suite anterior. Se conserva verbatim como material para la memoria: refleja
+# el contrato obsoleto contra el que se implementó el servicio, y reformatearla
+# destruiría esa evidencia. Véase tests/legacy/README.md.
+tests/legacy

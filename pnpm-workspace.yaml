@@ -1,0 +1,22 @@
+# pnpm 11 exige decidir explícitamente qué dependencias pueden ejecutar sus
+# scripts de instalación. Sin una respuesta a las dos, `pnpm install` termina
+# con ERR_PNPM_IGNORED_BUILDS y el hook de pre-commit falla.
+allowBuilds:
+  # Telemetría. No se ejecuta.
+  '@scarf/scarf': false
+  # Descarga el binario de mongod que usa la suite de contrato.
+  mongodb-memory-server: true
+
+onlyBuiltDependencies:
+  - mongodb-memory-server
+
+# `jest-openapi` arrastra `openapi-validator`, que declara `axios ^0.21.1` y
+# acumula ahí la práctica totalidad de los avisos de `pnpm audit`. Lo declara
+# sin usarlo: en el JavaScript compilado no hay ni un `require('axios')`, sólo
+# un `import type` en un `.d.ts` para tipar `AxiosResponse`. Es una dependencia
+# fantasma en tiempo de ejecución, y nuestra suite habla por `supertest`.
+#
+# Se fuerza la versión parcheada en lugar de silenciar los avisos: si algún día
+# se cargara de verdad, sería la versión sana.
+overrides:
+  axios: '>=1.20.0'
