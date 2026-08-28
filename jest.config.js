@@ -36,6 +36,8 @@ module.exports = {
   //
   //   - `src/config/index.js` y `src/utils/logger.js`: valores por defecto de
   //     variables de entorno y niveles de registro silenciados en pruebas.
+  //     (`src/config/jwtExpiry.js` sí se prueba: la vigencia del JWT es una
+  //     regla documentada, no un valor por defecto — véase tests/unit.)
   //   - `src/middlewares/errorHandler.js`: la rama del error no operacional
   //     (500) y la traza que sólo se añade en desarrollo.
   //   - `src/middlewares/validate.js`: las ramas de `query`, que ningún
@@ -52,10 +54,10 @@ module.exports = {
   // Cubrirlas exigiría tests que no comprueban ninguna promesa de la API.
   coverageThreshold: {
     global: {
-      statements: 86.44,
-      branches: 66.9,
-      functions: 85.24,
-      lines: 86.84,
+      statements: 87.13,
+      branches: 69.67,
+      functions: 85.71,
+      lines: 87.5,
     },
   },
 

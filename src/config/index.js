@@ -1,4 +1,5 @@
 const dotenv = require('dotenv');
+const { assertJwtExpiryInRange } = require('./jwtExpiry');
 
 dotenv.config();
 
@@ -15,6 +16,8 @@ const resolveLogLevel = () =>
     ? process.env.LOG_LEVEL_TEST || 'silent'
     : process.env.LOG_LEVEL || 'debug';
 
+const jwtExpiresIn = process.env.JWT_EXPIRES_IN || '1h';
+
 const config = {
   port: parseInt(process.env.PORT, 10) || 3000,
   nodeEnv: process.env.NODE_ENV || 'development',
@@ -28,7 +31,10 @@ const config = {
     'Autenticación, gestión de usuarios y emisión de API Keys — TFM SaaS Reconocimiento Facial',
   // JWT
   jwtSecret: process.env.JWT_SECRET,
-  jwtExpiresIn: process.env.JWT_EXPIRES_IN || '1h',
+  // La vigencia se valida al cargar la configuración: un valor fuera del rango
+  // admitido impide arrancar. Véase `./jwtExpiry.js`.
+  jwtExpiresIn,
+  jwtExpiresInSeconds: assertJwtExpiryInRange(jwtExpiresIn),
   // Email & Resend
   resendApiKey: process.env.RESEND_API_KEY,
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
