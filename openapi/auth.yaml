@@ -26,10 +26,12 @@ info:
   version: 1.0.0
 
 servers:
+  - url: http://localhost:3000
+    description: Desarrollo local — acceso directo al servicio, sin pasarela
+  - url: http://localhost:8000
+    description: Desarrollo local a través de Kong
   - url: https://api.example.com
     description: Producción
-  - url: http://localhost:3001
-    description: Desarrollo local
 
 tags:
   - name: Registro y sesión

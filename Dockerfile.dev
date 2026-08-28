@@ -29,4 +29,8 @@ COPY . .
 
 EXPOSE 3000
 
-CMD ["pnpm", "exec", "nodemon", "--legacy-watch", "--polling-interval", "1000", "src/server.js"]
+# `--ext` incluye yaml: la especificación se carga una sola vez al arrancar
+# (véase src/config/swagger.js), de modo que sin vigilarla había que reiniciar
+# el contenedor a mano cada vez que se tocaba openapi/auth.yaml.
+CMD ["pnpm", "exec", "nodemon", "--legacy-watch", "--polling-interval", "1000", \
+     "--ext", "js,mjs,cjs,json,yaml", "src/server.js"]
