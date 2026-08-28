@@ -1,13 +1,32 @@
-FROM node:20-alpine
+# Node 22: pnpm 11 usa `node:sqlite`, un módulo interno que no existe antes de
+# Node 22.5. Con node:20 la instalación de dependencias aborta con
+# ERR_UNKNOWN_BUILTIN_MODULE.
+FROM node:22-alpine
 
 WORKDIR /app
 
-COPY package*.json pnpm-lock.yaml* ./
+# Versión de pnpm FIJADA, y por npm en lugar de corepack.
+#
+# `corepack enable pnpm` instala la última versión publicada, de modo que la
+# imagen dependía de qué hubiera en el registro el día de la construcción: la
+# misma capa daba un pnpm distinto en marzo y en agosto. Fijarla aquí es lo que
+# hace la construcción reproducible; corepack, además, está en desuso.
+RUN npm install --global pnpm@11.24.0
 
-RUN corepack enable pnpm && pnpm install
+# `pnpm-workspace.yaml` es necesario en este punto: declara qué dependencias
+# pueden ejecutar scripts de instalación. Sin él, pnpm 11 termina con
+# ERR_PNPM_IGNORED_BUILDS y la construcción falla.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+
+# `mongodb-memory-server` sólo lo usa la suite de pruebas, que se ejecuta fuera
+# del contenedor. Sin esta variable su script de instalación se descarga un
+# binario de mongod de unos 100 MB en cada construcción.
+ENV MONGOMS_DISABLE_POSTINSTALL=1
+
+RUN pnpm install --frozen-lockfile
 
 COPY . .
 
 EXPOSE 3000
 
-CMD ["npx", "nodemon", "--legacy-watch", "--polling-interval", "1000", "src/server.js"]
+CMD ["pnpm", "exec", "nodemon", "--legacy-watch", "--polling-interval", "1000", "src/server.js"]
