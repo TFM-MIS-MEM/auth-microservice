@@ -32,5 +32,10 @@ EXPOSE 3000
 # `--ext` incluye yaml: la especificación se carga una sola vez al arrancar
 # (véase src/config/swagger.js), de modo que sin vigilarla había que reiniciar
 # el contenedor a mano cada vez que se tocaba openapi/auth.yaml.
-CMD ["pnpm", "exec", "nodemon", "--legacy-watch", "--polling-interval", "1000", \
+# Se invoca el binario directamente y no vía `pnpm exec`: `pnpm exec` comprueba
+# antes el estado de las dependencias y, si el `node_modules` del volumen quedó
+# desfasado respecto al lockfile montado, intenta purgarlo, no encuentra TTY y
+# aborta el arranque (ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY). El contenedor
+# sólo tiene que ejecutar lo que ya se instaló al construir la imagen.
+CMD ["node_modules/.bin/nodemon", "--legacy-watch", "--polling-interval", "1000", \
      "--ext", "js,mjs,cjs,json,yaml", "src/server.js"]
