@@ -23,6 +23,38 @@ info:
     - **API KEY**: credencial del canal API. Cadena opaca sin información
       interna, por lo que exige consulta a `POST /v1/auth/validate-key`. Se
       almacena hasheada y la pasarela cachea el resultado unos 60 segundos.
+
+    ## Respuestas declaradas
+
+    Se declara lo que es una decisión, no lo que es un fallo.
+
+    - Toda operación **alcanzable a través de la pasarela** declara `429`. Lo
+      que determina el `429` no es que la operación esté protegida, sino que la
+      pasarela la alcance: el limitador es global y no mira credenciales.
+    - Toda operación con `security` declara además `401`.
+    - Toda operación que admite `apiKeyAuth` declara además `503` y `403`.
+    - Se declara `403` también en las operaciones que pueden denegarse por
+      plan, cuota o estado del recurso, con los códigos de dominio propios.
+    - No se declaran las respuestas accidentales (`500`, `502`, `504`) ni las
+      de plataforma (`404` de ruta inexistente, `413`, *preflight* de CORS).
+    - Las respuestas originadas en la pasarela cumplen `ErrorReport` igual que
+      las del servicio. La excepción conocida hoy es el `429`; ver
+      `TFM-MIS-MEM/docs#82`.
+
+    El `403 ACCOUNT_SUSPENDED` y el `503 AUTH_UNAVAILABLE` los emite la
+    pasarela y **solo pueden darse en el canal de API**: dependen de validar la
+    API KEY contra `auth`, mientras que el JWT del canal web se verifica por
+    firma sin salir de la pasarela. OpenAPI no sabe atar una respuesta a un
+    esquema de seguridad concreto, así que esa restricción va en la descripción
+    de cada respuesta, en prosa.
+
+    En las operaciones que ya declaran un `403` con código de dominio, el `403`
+    de la pasarela puede llegar igualmente: no se ha reescrito ningún código de
+    dominio para reflejarlo.
+
+    `POST /v1/auth/validate-key` es la única operación fuera de esta regla, por
+    no ser alcanzable a través de la pasarela. El motivo se detalla en su propia
+    descripción.
   version: 1.0.0
 
 servers:
@@ -98,6 +130,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorReport'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
 
   /v1/auth/login:
     post:
@@ -255,6 +289,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
 
   /v1/auth/rotate-key:
     post:
@@ -308,6 +344,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorReport'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
 
   /v1/auth/me:
     get:
@@ -326,6 +364,8 @@ paths:
                 $ref: '#/components/schemas/Account'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
 
   /v1/auth/suspend:
     post:
@@ -358,6 +398,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorReport'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
 
   /v1/auth/accounts/{accountId}/status:
     patch:
@@ -398,6 +440,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
 
   /v1/auth/account:
     delete:
@@ -449,6 +493,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorReport'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
 
   /v1/auth/validate-key:
     post:
@@ -476,6 +522,20 @@ paths:
         un endpoint que, por su naturaleza, valida credenciales.
 
         **Patrón:** RETRIEVAL OPERATION.
+
+        ## Por qué no declara las respuestas de pasarela
+
+        Es la única operación del contrato que **no** declara `429`, `503` ni
+        `403`, y la excepción es deliberada. No es alcanzable a través de la
+        pasarela ---es la propia pasarela quien la corta con un `404`---, de
+        modo que el limitador de tasa no le aplica.
+
+        Su `apiKeyAuth` tampoco es una credencial de acceso, sino **la clave que
+        se valida**, así que la regla que ata `503` y `403` a ese esquema no
+        tiene sentido aquí: el `503 AUTH_UNAVAILABLE` significa «`auth` no
+        responde» y no puede declararlo el propio `auth`, y una cuenta
+        suspendida **no es un error** en esta operación ---se responde `200` con
+        `status: "suspended"` y es la pasarela quien decide---.
       security:
         - apiKeyAuth: []
           internalSecret: []
@@ -598,7 +658,22 @@ components:
             $ref: '#/components/schemas/ErrorReport'
 
     TooManyRequests:
-      description: Límite de tasa superado
+      description: |
+        Límite de tasa superado.
+
+        Lo emite el plugin `rate-limiting` de la pasarela, no el servicio.
+        **Su cuerpo no cumple hoy este esquema**: la pasarela responde
+        `{"message": ..., "request_id": ...}`, sin `code`. El esquema declarado
+        aquí es el que la respuesta debe cumplir, y la divergencia se sigue en
+        `TFM-MIS-MEM/docs#82`. El campo `request_id` es un detalle de la
+        implementación de la pasarela y deliberadamente **no** forma parte de
+        `ErrorReport`.
+
+        Alcance, que no es uniforme: en las rutas protegidas el plugin de
+        autenticación corta antes que el limitador, de modo que este `429` solo
+        alcanza a un llamante **ya autenticado**; en las rutas públicas de
+        `auth` el limitador cuenta desde la primera petición. Se sigue en
+        `TFM-MIS-MEM/docs#83`.
       content:
         application/json:
           schema:
