@@ -30,12 +30,19 @@ module.exports = {
   // una línea sin cambiar nada sustantivo, y un suelo que salta por ruido deja
   // de leerse.
   //
+  // Excepción en `statements`: lo medido es 88,00 EXACTO, de modo que el
+  // entero inferior coincide con la medición y no deja margen ninguno —que es
+  // justo lo que la convención quería evitar—. Se baja un punto más, a 87. La
+  // regla es «entero inferior», y cuando la medición ya cae en un entero, el
+  // inferior es el anterior.
+  //
   // Historial de la medición:
   //   - 46,19 / 17,21 / 19,56 / 48,46 — con los 42 tests en rojo: la mayor
   //     parte de `src/` no llegaba a ejecutarse porque las peticiones morían
   //     en un 404 de enrutado.
   //   - 87,13 / 69,67 / 85,71 / 87,50 — 27/08/2026, con las 69 de contrato.
-  //   - 88 / 75 / 87 / 88 — 04/09/2026, al cerrar #79. La subida de las ramas
+  //   - 88,00 / 75,49 / 87,30 / 88,41 — 04/09/2026, al cerrar #79; fijado a
+  //     87 / 75 / 87 / 88. La subida de las ramas
   //     es casi toda de `errorHandler.js`, que pasa a 100 % en las cuatro
   //     métricas: la prueba unitaria recorre sus dos ramas —error operacional
   //     y no operacional— y el vocabulario de códigos por defecto al completo.
@@ -64,7 +71,7 @@ module.exports = {
   // Cubrirlas exigiría tests que no comprueban ninguna promesa de la API.
   coverageThreshold: {
     global: {
-      statements: 88,
+      statements: 87,
       branches: 75,
       functions: 87,
       lines: 88,
