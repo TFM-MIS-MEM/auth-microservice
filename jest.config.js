@@ -18,17 +18,29 @@ module.exports = {
   coverageDirectory: 'coverage',
   coverageReporters: ['text', 'lcov', 'clover'],
 
-  // Trinquete de cobertura: valores medidos con la suite de contrato en verde
-  // (`pnpm test:coverage`, 27/08/2026). No es un objetivo, es un suelo: sirve
-  // para que arreglar `src/` contra la especificación no pueda ir acompañado
-  // de una pérdida de cobertura sin que la suite lo diga. Al subir, se sube
-  // también este bloque.
+  // Trinquete de cobertura: valores medidos con la suite en verde
+  // (`pnpm test:coverage`, 04/09/2026, 103 pruebas). No es un objetivo, es un
+  // suelo: sirve para que arreglar `src/` contra la especificación no pueda ir
+  // acompañado de una pérdida de cobertura sin que la suite lo diga. Al subir,
+  // se sube también este bloque.
   //
-  // Los valores anteriores (46,19 / 17,21 / 19,56 / 48,46) se midieron con los
-  // 42 tests en rojo: la mayor parte de `src/` no llegaba a ejecutarse porque
-  // las peticiones morían en un 404 de enrutado.
+  // Se redondea A LA BAJA, al entero inferior de lo medido —88,00 / 75,49 /
+  // 87,30 / 88,41—, siguiendo la convención que se fijó en `pricing`. Un
+  // trinquete clavado a la centésima salta con cualquier refactor que mueva
+  // una línea sin cambiar nada sustantivo, y un suelo que salta por ruido deja
+  // de leerse.
   //
-  // Por qué las ramas van 20 puntos por debajo del resto, y por qué se acepta:
+  // Historial de la medición:
+  //   - 46,19 / 17,21 / 19,56 / 48,46 — con los 42 tests en rojo: la mayor
+  //     parte de `src/` no llegaba a ejecutarse porque las peticiones morían
+  //     en un 404 de enrutado.
+  //   - 87,13 / 69,67 / 85,71 / 87,50 — 27/08/2026, con las 69 de contrato.
+  //   - 88 / 75 / 87 / 88 — 04/09/2026, al cerrar #79. La subida de las ramas
+  //     es casi toda de `errorHandler.js`, que pasa a 100 % en las cuatro
+  //     métricas: la prueba unitaria recorre sus dos ramas —error operacional
+  //     y no operacional— y el vocabulario de códigos por defecto al completo.
+  //
+  // Por qué las ramas siguen por debajo del resto, y por qué se acepta:
   // las que quedan sin cubrir NO son lógica del contrato —la del contrato se
   // cubrió al completo el 27/08/2026: suspensión en `login`, secreto interno
   // ausente y no coincidente en `validate-key`, JWT caducado, y JWT de una
@@ -38,8 +50,6 @@ module.exports = {
   //     variables de entorno y niveles de registro silenciados en pruebas.
   //     (`src/config/jwtExpiry.js` sí se prueba: la vigencia del JWT es una
   //     regla documentada, no un valor por defecto — véase tests/unit.)
-  //   - `src/middlewares/errorHandler.js`: la rama del error no operacional
-  //     (500) y la traza que sólo se añade en desarrollo.
   //   - `src/middlewares/validate.js`: las ramas de `query`, que ningún
   //     esquema del servicio usa todavía.
   //   - `src/services/auth.service.js`: las comprobaciones `if (!account)`
@@ -54,10 +64,10 @@ module.exports = {
   // Cubrirlas exigiría tests que no comprueban ninguna promesa de la API.
   coverageThreshold: {
     global: {
-      statements: 87.13,
-      branches: 69.67,
-      functions: 85.71,
-      lines: 87.5,
+      statements: 88,
+      branches: 75,
+      functions: 87,
+      lines: 88,
     },
   },
 
