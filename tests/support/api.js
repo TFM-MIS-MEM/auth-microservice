@@ -16,7 +16,41 @@
  */
 
 const request = require('supertest');
-const app = require('../../src/app');
+const expressApp = require('../../src/app');
+
+/**
+ * UN ÚNICO servidor escuchando por fichero de prueba, en lugar de uno efímero
+ * por petición.
+ *
+ * `supertest` sólo llama a `listen(0)` cuando lo que recibe no está ya
+ * escuchando; si se le pasa un servidor con dirección asignada, reutiliza su
+ * puerto. Pasándole la aplicación de Express directamente creaba y cerraba un
+ * servidor POR CADA petición: varios cientos por fichero, y más de trescientos
+ * sólo entre las tres ráfagas de `burst()`.
+ *
+ * Esa rotación de puertos efímeros era la causa del no determinismo del issue
+ * #90. Se capturaron respuestas con este aspecto:
+ *
+ *   POST http://127.0.0.1:54914/v1/auth/register  status=404
+ *   hdrs={"content-length":"0","content-type":"text/html"}
+ *
+ * Sin `x-content-type-options` (helmet) ni `x-powered-by` (Express), con el
+ * cuerpo vacío y tipo `text/html`: NO las emitió este servicio. Se confirmó
+ * además instrumentando `notFound`, que no llegó a ejecutarse. La petición
+ * aterrizaba en un puerto recién reciclado que ocupaba otro proceso de la
+ * máquina, y el test leía su 404 como si fuera del servicio.
+ *
+ * Con el puerto tomado para todo el fichero, la ventana de reciclado
+ * desaparece: un choque se manifestaría al enlazar, con EADDRINUSE, y no como
+ * una respuesta ajena colada a mitad de la batería.
+ */
+const app = expressApp.listen(0);
+
+// Se cierra al terminar el fichero. `afterAll` está disponible porque este
+// módulo lo requiere un fichero de prueba, no el arranque de Jest.
+if (typeof afterAll === 'function') {
+  afterAll(() => new Promise((resolve) => app.close(resolve)));
+}
 
 const PASSWORD = 'SuperSecret123!';
 
@@ -66,6 +100,25 @@ const createAuthenticatedAccount = async (options) => {
 /**
  * Repite una petición hasta obtener un 429 o agotar los intentos.
  * Devuelve la última respuesta recibida.
+ *
+ * ARITMÉTICA, porque el coste no es evidente: el `credentialRateLimiter`
+ * permite 100 peticiones por ventana, de modo que hacen falta **101 viajes de
+ * ida y vuelta secuenciales** para que el limitador responda. Son tres las
+ * pruebas que dependen de esto —`login`, `forgot-password` y
+ * `reset-password`—, o sea unas 303 peticiones de las 399 que hace la suite
+ * completa.
+ *
+ * ESO SÓLO ES VIABLE CON EL SERVIDOR PERSISTENTE de arriba. Cuando `supertest`
+ * levantaba y cerraba un servidor por petición, estas tres pruebas tardaban
+ * ~290 ms en el caso bueno y superaban el plazo por defecto de Jest —5000 ms—
+ * bajo carga, que era la mitad visible del issue #90. Con el puerto tomado para
+ * todo el fichero bajan a ~62 ms.
+ *
+ * De ahí que NO se les haya subido el `testTimeout`: el plazo por defecto deja
+ * hoy dos órdenes de magnitud de margen, y una constante ampliada cuya razón de
+ * ser ya no existe es justo lo que alguien copia dentro de un año sin saber por
+ * qué está. Si estas tres vuelven a acercarse al plazo, el sospechoso no es el
+ * plazo: es que algo haya devuelto la creación de servidores por petición.
  */
 const burst = async (send, attempts = 120) => {
   let res;
