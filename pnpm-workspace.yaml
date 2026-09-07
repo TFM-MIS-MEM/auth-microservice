@@ -18,5 +18,24 @@ onlyBuiltDependencies:
 #
 # Se fuerza la versión parcheada en lugar de silenciar los avisos: si algún día
 # se cargara de verdad, sería la versión sana.
+# `qs` lo arrastra `express`, que lo usa para parsear la cadena de consulta en
+# CADA petición: es código de producción, no una dependencia fantasma. Las dos
+# vulnerabilidades moderadas que arrastra 6.15.3 —GHSA-x5fp-wj9c-mxmx y
+# GHSA-4mjr-xmp4-gh2g— se corrigen en 6.16.0, pero `express@4.22.2` declara
+# `qs: ~6.15.1` con TILDE, de modo que jamás llegará ahí por sí solo, y 4.22.2
+# es el último 4.x publicado: aguas arriba no hay nada que instalar.
+#
+# El techo `<7` no es adorno. A diferencia de `axios`, que no se carga, aquí un
+# lockfile regenerado en el futuro podría colar un `qs@7` bajo un `express@4`
+# sin que nadie lo mirase. El suelo cierra la vulnerabilidad; el techo impide
+# que la corrección se convierta en un salto de major silencioso.
+#
+# El rango no es temerario: `express@5` ya declara `qs: ^6.14.0` con
+# CIRCUNFLEJO, es decir, el propio express admite 6.16.0 en su rama viva. La
+# tilde del 4.x es un anclaje conservador de una rama en mantenimiento.
+#
+# Es un apaño. La corrección duradera es que express 4.x suba el rango o pasar
+# a express 5.
 overrides:
   axios: '>=1.20.0'
+  qs: '>=6.16.0 <7'
