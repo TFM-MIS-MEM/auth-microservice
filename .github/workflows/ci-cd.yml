@@ -54,8 +54,47 @@ jobs:
       # -----------------------------------------------
       # 6. Security audit
       # -----------------------------------------------
+      # `--prod`: se audita el árbol que SE DESPLIEGA. Los avisos que `pnpm
+      # audit` a secas añadía eran de `browserslist`, alcanzable sólo por
+      # `jest > @jest/core > @jest/reporters > istanbul-lib-instrument >
+      # @babel/core > @babel/helper-compilation-targets`: transitiva de una
+      # herramienta de pruebas, ausente de la imagen que se publica. Un aviso
+      # sobre código que nunca se ejecuta en producción no es una vulnerabilidad
+      # del servicio, y tratarlo como tal es lo que dejó este paso en rojo
+      # permanente desde el 02/09.
+      #
+      # Eso importa más de lo que parece: mientras estuvo siempre en rojo, nadie
+      # volvió a leer su salida, y cuando el 02/09 a las 14:45 UTC se publicaron
+      # dos avisos sobre `qs` —código que sí se ejecuta en cada petición— éstos
+      # entraron en un informe que ya nadie miraba. Se corrigen con el override
+      # de `pnpm-workspace.yaml`, no aquí.
+      #
+      # El reintento es por el registro, no por las dependencias: el endpoint de
+      # avisos de npm devuelve 503 o agota el socket cada cierto tiempo, y un
+      # guardián que se tiñe de rojo por una incidencia ajena fabrica su propia
+      # intermitencia, que es exactamente lo que enseña a ignorarlo.
       - name: Security audit
-        run: pnpm audit
+        run: |
+          for intento in 1 2 3; do
+            if pnpm audit --prod; then
+              exit 0
+            fi
+            # `pnpm audit` sale con código != 0 tanto si encuentra avisos como
+            # si no consigue hablar con el registro. Sólo el segundo caso se
+            # reintenta: un aviso real tiene que teñir la CI de rojo a la
+            # primera.
+            if ! curl -sf --max-time 20 -o /dev/null \
+                 https://registry.npmjs.org/-/npm/v1/security/advisories/bulk \
+                 -X POST -H 'Content-Type: application/json' -d '{}'; then
+              echo "::warning::El registro de npm no responde (intento $intento/3); reintentando en 30 s"
+              sleep 30
+              continue
+            fi
+            echo "::error::pnpm audit --prod ha encontrado vulnerabilidades en el árbol de producción"
+            exit 1
+          done
+          echo "::error::El registro de npm no ha respondido tras 3 intentos"
+          exit 1
 
       # -----------------------------------------------
       # 7. Tests + Coverage
