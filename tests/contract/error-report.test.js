@@ -308,7 +308,12 @@ describe('en NODE_ENV=development — el escenario de #79', () => {
 
     devMongoose = require('mongoose');
     await devMongoose.connect(process.env.MONGODB_URI, { dbName: devDbName });
-    devApp = require('../../src/app');
+
+    // Se pone a escuchar, igual que hace `tests/support/api.js` con la
+    // aplicación normal: a `supertest` hay que darle un servidor con dirección
+    // asignada, o volvería a crear y cerrar uno por petición y este bloque
+    // reintroduciría por su cuenta la exposición que corrige el issue #90.
+    devApp = require('../../src/app').listen(0);
   });
 
   beforeEach(() => {
@@ -325,6 +330,7 @@ describe('en NODE_ENV=development — el escenario de #79', () => {
   });
 
   afterAll(async () => {
+    await new Promise((resolve) => devApp.close(resolve));
     await devMongoose.connection.dropDatabase();
     await devMongoose.disconnect();
     delete process.env.LOG_LEVEL;
