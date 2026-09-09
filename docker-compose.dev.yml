@@ -36,9 +36,24 @@ services:
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
       RESEND_API_KEY: ${RESEND_API_KEY}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
-      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-dev_internal_secret_key_789}
+      # Sin defecto, y no por simetría con el código: un defecto AQUÍ anularía
+      # la guarda de `src/config/internalSecret.js`, que no llegaría a
+      # evaluarse nunca bajo compose. La guarda tiene que estar en las dos
+      # capas o no está.
+      INTERNAL_API_SECRET: "${INTERNAL_API_SECRET:?obligatorio y sin defecto. Genérelo con crypto.randomBytes(32).toString('hex') y déjelo igual en SPACE_AUTH_INTERNAL_SECRET de api-gateway}"
     ports:
-      - "${PORT:-3000}:${PORT:-3000}"   # Acceso directo — solo para dev (bypass Kong)
+      # Publicado SÓLO en el bucle local. Lo que quedaba expuesto aquí no son
+      # las cabeceras de identidad —`auth` es el emisor del JWT y no las lee—,
+      # sino POST /v1/auth/validate-key: `kong.yml` declara para esa ruta un
+      # `request-termination` con 404 porque el contrato dice que no debe
+      # exponerse a través de la pasarela, y con el puerto en 0.0.0.0 esa
+      # terminación no protegía nada. Medido en #95: la operación respondía
+      # desde la IP de LAN de la máquina.
+      #
+      # Atarlo a 127.0.0.1 deja fuera al resto de la red sin renunciar a la
+      # depuración directa ni a /docs desde el navegador —el primer `servers`
+      # de openapi/auth.yaml, que sigue siendo http://localhost:3000—.
+      - "127.0.0.1:${PORT:-3000}:${PORT:-3000}"
     volumes:
       - .:/app:cached
       - /app/node_modules              # Preservar node_modules del contenedor
@@ -64,7 +79,16 @@ services:
     environment:
       MONGO_INITDB_DATABASE: auth-db
     ports:
-      - "27017:27017"   # Acceso directo — MongoDB Compass, etc.
+      # Publicado SÓLO en el bucle local, por el mismo motivo y con un agravante:
+      # esta base NO tiene autenticación. En 0.0.0.0 cualquiera en la red leía la
+      # colección `accounts` entera —correos, hashes de contraseña y de API KEY— y
+      # podía escribir en ella, que es una vía a ADMIN sin pasar por el servicio.
+      # Medido en #95.
+      #
+      # Atarlo a 127.0.0.1 cierra la red y conserva Compass. NO cierra el
+      # anfitrión: cualquier proceso de esta máquina sigue leyendo la tabla de
+      # cuentas. Eso exige autenticación en Mongo y se sigue en su propio issue.
+      - "127.0.0.1:27017:27017"
     volumes:
       - auth-mongo-data:/data/db
     networks:
