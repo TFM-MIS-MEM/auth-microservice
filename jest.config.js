@@ -30,11 +30,12 @@ module.exports = {
   // una línea sin cambiar nada sustantivo, y un suelo que salta por ruido deja
   // de leerse.
   //
-  // Excepción en `statements`: lo medido es 88,00 EXACTO, de modo que el
-  // entero inferior coincide con la medición y no deja margen ninguno —que es
-  // justo lo que la convención quería evitar—. Se baja un punto más, a 87. La
-  // regla es «entero inferior», y cuando la medición ya cae en un entero, el
-  // inferior es el anterior.
+  // Excepción cuando la medición cae en un entero EXACTO: el entero inferior
+  // coincidiría con lo medido y no dejaría margen ninguno —que es justo lo que
+  // la convención quería evitar—. Se baja un punto más. La regla es «entero
+  // inferior», y cuando la medición ya cae en un entero, el inferior es el
+  // anterior. Le tocó a `statements` el 04/09 (88,00 -> 87) y a `branches` el
+  // 09/09 (80,00 -> 79).
   //
   // Historial de la medición:
   //   - 46,19 / 17,21 / 19,56 / 48,46 — con los 42 tests en rojo: la mayor
@@ -46,6 +47,13 @@ module.exports = {
   //     es casi toda de `errorHandler.js`, que pasa a 100 % en las cuatro
   //     métricas: la prueba unitaria recorre sus dos ramas —error operacional
   //     y no operacional— y el vocabulario de códigos por defecto al completo.
+  //   - 88,41 / 80,00 / 87,69 / 88,83 — 09/09/2026, al cerrar #95; fijado a
+  //     88 / 79 / 87 / 88. Las ramas suben casi cinco puntos porque
+  //     `internalSecret.js` y `requiredEnv.js` quedan al 100 % en las cuatro
+  //     métricas, y porque `config/index.js` deja de tener tres `||` que
+  //     ninguna prueba recorría por el lado del defecto. `branches` vuelve a
+  //     caer en un entero exacto —80,00—, de modo que se aplica otra vez la
+  //     excepción de abajo y se fija en 79.
   //
   // Por qué las ramas siguen por debajo del resto, y por qué se acepta:
   // las que quedan sin cubrir NO son lógica del contrato —la del contrato se
@@ -71,8 +79,8 @@ module.exports = {
   // Cubrirlas exigiría tests que no comprueban ninguna promesa de la API.
   coverageThreshold: {
     global: {
-      statements: 87,
-      branches: 75,
+      statements: 88,
+      branches: 79,
       functions: 87,
       lines: 88,
     },
