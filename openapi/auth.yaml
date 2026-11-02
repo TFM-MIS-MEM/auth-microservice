@@ -17,7 +17,8 @@ info:
     ## Credenciales
 
     - **JWT**: credencial del canal web. Se valida **por firma** en la pasarela,
-      sin consultar a este servicio. Caducidad de 60 minutos. Ello implica una
+      sin consultar a este servicio. La vigencia sale de `JWT_EXPIRES_IN`, que la
+      guarda de arranque acota entre 5 minutos y 2 horas. Ello implica una
       ventana de revocación: una cuenta suspendida puede seguir operando por el
       canal web hasta que caduque su token.
     - **API KEY**: credencial del canal API. Cadena opaca sin información
