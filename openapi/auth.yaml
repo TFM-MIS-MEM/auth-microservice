@@ -17,7 +17,8 @@ info:
     ## Credenciales
 
     - **JWT**: credencial del canal web. Se valida **por firma** en la pasarela,
-      sin consultar a este servicio. Caducidad de 60 minutos. Ello implica una
+      sin consultar a este servicio. La vigencia sale de `JWT_EXPIRES_IN`, que la
+      guarda de arranque acota entre 5 minutos y 2 horas. Ello implica una
       ventana de revocación: una cuenta suspendida puede seguir operando por el
       canal web hasta que caduque su token.
     - **API KEY**: credencial del canal API. Cadena opaca sin información
@@ -139,8 +140,9 @@ paths:
       summary: Iniciar sesión
       operationId: login
       description: |
-        Devuelve un JWT con vigencia de 60 minutos, necesario para operar por el
-        canal web.
+        Devuelve un JWT, necesario para operar por el canal web. Su vigencia
+        sale de `JWT_EXPIRES_IN`, que la guarda de arranque acota entre 5
+        minutos y 2 horas.
 
         **Patrón:** RETRIEVAL OPERATION. Aunque devuelve un valor calculado y no
         una representación de recurso, la operación lee el estado almacenado
@@ -568,7 +570,8 @@ components:
       bearerFormat: JWT
       description: |
         Credencial del canal web. Validada por firma en la pasarela, sin
-        consulta a este servicio. Vigencia de 60 minutos.
+        consulta a este servicio. La vigencia sale de `JWT_EXPIRES_IN`, que
+        la guarda de arranque acota entre 5 minutos y 2 horas.
     apiKeyAuth:
       type: apiKey
       in: header
