@@ -1,8 +1,9 @@
-# Node.js Microservice Template
+# Auth
 
-Boilerplate profesional y escalable para los microservicios Node.js (Auth, Pricing, etc.) del Trabajo de Fin de Máster (TFM) del SaaS de Reconocimiento Facial.
+Cuentas, credenciales de los dos canales (JWT para la web, API KEY para la API) y ciclo de vida de la cuenta del SaaS de reconocimiento facial del TFM. Node.js, Express y MongoDB.
 
-Esta plantilla está diseñada como punto de partida para cualquier servicio backend en Node.js, incorporando todas las directrices globales del proyecto (Clean Architecture, seguridad, manejo de errores y pipelines de despliegue).
+- **Contrato:** [`openapi/auth.yaml`](openapi/auth.yaml), 11 operaciones, todas implementadas. Es la fuente de verdad: si el código y el contrato discrepan, se corrige el código.
+- Parte de `node-template`, la plantilla de los microservicios Node.js del proyecto; de ahí la estructura que se describe abajo.
 
 ---
 
@@ -40,7 +41,7 @@ Implementado globalmente en `src/app.js`:
 
 - **Helmet**: Protege aplicando headers HTTP seguros.
 - **CORS**: Habilita configuración controlada del intercambio cruzado de recursos.
-- **Rate Limiting (`express-rate-limit`)**: 100 peticiones por IP cada 15 minutos, montado **sólo** sobre `login`, `forgot-password` y `reset-password` (`src/middlewares/rateLimit.js`). No es global: únicamente esas tres operaciones declaran `429` en el contrato, y devolverlo en las demás sería una respuesta no conforme. El límite general por plan es responsabilidad de Kong.
+- **Rate Limiting (`express-rate-limit`)**: 100 peticiones por IP cada 15 minutos, montado **sólo** sobre `login`, `forgot-password` y `reset-password` (`src/middlewares/rateLimit.js`). No es global. El limitador general es el de la pasarela (Kong), que alcanza a todas las operaciones salvo `validate-key`: por eso las otras diez también declaran `429` en el contrato. No depende del plan.
 
 ### 5. Documentación (Swagger / OpenAPI)
 
@@ -54,62 +55,65 @@ Se prohíbe subir código roto o mal formateado. Las herramientas actúan en pre
 
 - **ESLint & Prettier**: Formatean y analizan la sintaxis (`lint-staged`).
 - **Husky (`.husky/`)**:
-  - `pre-commit`: Dispara verificación de linter, prettier y opcionalmente testing preventivo.
+  - `pre-commit`: Ejecuta `lint-staged` (ESLint y Prettier sobre lo preparado) y la suite de pruebas completa.
   - `commit-msg`: Exige convencionales (Conventional Commits: `feat:`, `fix:`, `chore:`) interceptado mediante `@commitlint/` para estandarizar el historial.
 
 ### 7. Integración y Despliegue Continuo (CI/CD)
 
 Múltiples pipelines provistos vía GitHub Actions (`.github/workflows/`):
 
-- **`ci-cd.yml`**: Disparado en cada Push/Pull Request. Instala dependencias con `pnpm` (usando caché), linta, verifica formato y ejecuta tests unitarios.
-- **`release.yml`**: Crea versiones automáticas (Semantic Release) basadas en commits, genera Changelogs de GitHub, compila la imagen de Docker, y la sube al Container Registry (Docker Hub/GHCR) adaptándose al entorno (dev/prod).
+- **`ci-cd.yml`**: Disparado en cada push y pull request a `main`. Instala dependencias con `pnpm` (usando caché), pasa ESLint, la auditoría de seguridad de dependencias y las pruebas con cobertura.
+- **`release.yml`**: Disparado al empujar una etiqueta `v*`. Compila la imagen de Docker, la sube a Docker Hub y crea la release de GitHub con notas generadas a partir de los Conventional Commits.
 
 ---
 
 ## 🚀 Cómo Ejecutar el Proyecto
 
-El entorno utiliza **`pnpm`** como gestor de paquetes principal. Todos los entornos manejan sus archivos `.env` a través de utilidades en la carpeta `/scripts`.
+El entorno utiliza **`pnpm`** como gestor de paquetes principal. Lo habitual es levantar `auth` con el resto de la pila mediante `scripts/dev-up.sh` del repositorio [docs](https://github.com/TFM-MIS-MEM/docs), que genera los secretos que comparte con la pasarela y con `pricing`. Para levantarlo por separado:
 
 ### Prerrequisitos
 
 - Node.js >= 20
-- Colección `pnpm` instalada (`npm install -g pnpm`)
-- MongoDB (local, o Dockerizado)
+- `pnpm` instalado (`npm install -g pnpm`)
+- MongoDB (local, o el del compose de desarrollo)
 
 ```bash
 pnpm install
 ```
 
+### Configuración
+
+```bash
+# Copia .env.example en .env (sobrescribe el .env que haya)
+pnpm run env:local
+```
+
+Después, sustituye los secretos de ejemplo. El servicio **no arranca** con los valores publicados de `INTERNAL_API_SECRET` (`src/config/internalSecret.js`), y `JWT_SECRET` tiene que coincidir con `SPACE_AUTH_JWT_SECRET` de la pasarela.
+
 ### Opción 1: Desarrollo Local (Hot-reload, MongoDB Local)
 
-Recomendado si ya tienes MongoDB y dependencias corriendo localmente.
-
 ```bash
-# 1. Autogenera el archivo .env consumiendo .env.local.example
-pnpm run env:local
-
-# 2. Inicia servidor con recarga usando Nodemon
-pnpm run dev:local
+pnpm run dev
 ```
 
-### Opción 2: Desarrollo con Docker Compose (Recomendado)
+No uses `pnpm run dev:local`: vuelve a copiar `.env.example` antes de arrancar y descarta los secretos que hayas puesto.
 
-Levanta la base de datos MongoDB y el backend Node empaquetado, compartiendo volúmenes. Con esto evitas incompatibilidades locales y conservas hot-reload.
+### Opción 2: Desarrollo con Docker Compose
+
+Levanta el servicio con recarga en caliente y su MongoDB, publicados solo en el bucle local: el servicio en `127.0.0.1:3000` y MongoDB en `127.0.0.1:27017`.
 
 ```bash
-# 1. Configura el .env de docker (`Scripts` lo copia de .env.docker.example)
-pnpm run env:compose
-
-# 2. Levanta servicio y DB en contenedores (Mapea cambios a tiempo real)
-pnpm run dev:compose
+docker network create tfm-network   # solo la primera vez
+pnpm run docker:dev
 ```
+
+`pnpm run env:compose` y `pnpm run dev:compose` fallan: copian `.env.docker-compose.example`, que no existe.
 
 ### Opción 3: Entorno Producción (Docker Compose)
 
-Compila usando el `Dockerfile` de producción (peso ligero, usuario non-root por seguridad).
+Compila usando el `Dockerfile` de producción (peso ligero, usuario non-root por seguridad). No publica ningún puerto: el servicio y su base solo se alcanzan desde su red interna.
 
 ```bash
-pnpm run env:compose
 pnpm run docker:prod
 ```
 
@@ -154,7 +158,7 @@ servicio ya no los busca: las cuentas parecerán no existir en lugar de fallar.
 ## 🏗️ Estructura Completa del Directorio
 
 ```text
-node-template/
+auth-microservice/
 ├── .github/                # Workflows de CI/CD (GitHub Actions)
 ├── .husky/                 # Git hooks para validación de pre-commits y mensajes de commit
 ├── scripts/                # Scripts utilitarios (ej. automatizar copia de .env)
